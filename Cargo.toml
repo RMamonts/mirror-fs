@@ -21,11 +21,11 @@ crossbeam-queue = "0.3.12"
 trait-variant = "0.1.2"
 clap = { version = "4.5.61", features = ["derive"] }
 serde = { version = "1.0.228", features = ["derive"] }
-toml = "0.9.6"
+toml = "0.8.19"
 libc = "0.2"
 
 # Gihub dependencies
-nfs-mamont = { git = "https://github.com/RMamonts/nfs-mamont.git", rev = "e7d4d39ed59cc344f356685f34299e5e6b469529" }
+nfs-mamont = { git = "https://github.com/RMamonts/nfs-mamont.git", rev = "0ff63396e5a7b263bd86abce5b6131da45b3fe06" }
 
 [dev-dependencies]
 tempfile = "3.27.0"
