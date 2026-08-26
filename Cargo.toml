@@ -1,5 +1,5 @@
 [package]
-name = "mirrorfs"
+name = "mirror-fs"
 description = "A Rust NFS Server implementation"
 authors = ["Rmamonts"]
 version = "0.0.0"
