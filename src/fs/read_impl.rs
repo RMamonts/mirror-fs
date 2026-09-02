@@ -83,7 +83,7 @@ impl<B: Buffer> read::Read<B> for MirrorFS {
         }
 
         Ok(read::Success {
-            head: read::SuccessPartial {
+            head: read::SuccessHeader {
                 file_attr: Some(attr),
                 count: read_count as u32,
                 eof: start.saturating_add(read_count as u64) >= file_len,
