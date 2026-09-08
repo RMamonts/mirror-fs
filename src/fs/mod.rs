@@ -15,6 +15,7 @@ use nfs_mamont::vfs::read_dir;
 use nfs_mamont::vfs::set_attr;
 use nfs_mamont::vfs::write;
 
+use crate::auth;
 use crate::fs_map::FsMap;
 
 mod access_impl;
@@ -116,8 +117,8 @@ impl MirrorFS {
         let path = self.path_for_handle(handle).await?;
         let meta = Self::metadata(&path)?;
         let attr = Self::attr_from_metadata(&meta);
-        let granted = Self::compute_access_mask(&attr, cred, access::Mask::from_wire(required));
-        if granted.contains(required) {
+        let authorization = auth::Authorization::from_credential(cred.clone());
+        if authorization.allowed(&attr, access::Mask::from_wire(required)) {
             Ok(())
         } else {
             Err(vfs::Error::Access)

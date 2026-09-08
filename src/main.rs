@@ -19,6 +19,7 @@ pub mod fs_map;
 
 #[cfg(test)]
 mod tests;
+pub mod auth;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
