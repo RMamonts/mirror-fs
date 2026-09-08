@@ -1,3 +1,4 @@
+use nfs_mamont::auth::Credential;
 use nfs_mamont::consts::nfsv3::NFS3_WRITEVERFSIZE;
 use nfs_mamont::vfs::{self, read_dir, read_dir_plus};
 
@@ -6,8 +7,15 @@ use super::MirrorFS;
 impl read_dir_plus::ReadDirPlus for MirrorFS {
     async fn read_dir_plus(
         &self,
+        cred: Credential,
         args: read_dir_plus::Args,
     ) -> Result<read_dir_plus::Success, read_dir_plus::Fail> {
+        if let Err(error) = self.require_read(&cred, &args.dir).await {
+            return Err(read_dir_plus::Fail { error, dir_attr: None });
+        }
+        if let Err(error) = self.require_lookup(&cred, &args.dir).await {
+            return Err(read_dir_plus::Fail { error, dir_attr: None });
+        }
         let dir_path = match self.path_for_handle(&args.dir).await {
             Ok(path) => path,
             Err(error) => return Err(read_dir_plus::Fail { error, dir_attr: None }),

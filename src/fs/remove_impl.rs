@@ -1,12 +1,19 @@
 use tokio::fs;
 
+use nfs_mamont::auth::Credential;
 use nfs_mamont::vfs::{self, remove};
 
 use super::MirrorFS;
 
 impl remove::Remove for MirrorFS {
-    async fn remove(&self, args: remove::Args) -> Result<remove::Success, remove::Fail> {
+    async fn remove(&self, cred: Credential, args: remove::Args) -> Result<remove::Success, remove::Fail> {
         if let Err(error) = Self::ensure_name_allowed(&args.object.name) {
+            return Err(remove::Fail {
+                error,
+                dir_wcc: vfs::WccData { before: None, after: None },
+            });
+        }
+        if let Err(error) = self.require_delete(&cred, &args.object.dir).await {
             return Err(remove::Fail {
                 error,
                 dir_wcc: vfs::WccData { before: None, after: None },

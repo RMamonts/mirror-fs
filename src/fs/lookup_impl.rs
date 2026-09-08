@@ -1,11 +1,15 @@
 use std::path::PathBuf;
 
+use nfs_mamont::auth::Credential;
 use nfs_mamont::vfs::lookup;
 
 use super::MirrorFS;
 
 impl lookup::Lookup for MirrorFS {
-    async fn lookup(&self, args: lookup::Args) -> Result<lookup::Success, lookup::Fail> {
+    async fn lookup(&self, cred: Credential, args: lookup::Args) -> Result<lookup::Success, lookup::Fail> {
+        if let Err(error) = self.require_lookup(&cred, &args.parent).await {
+            return Err(lookup::Fail { error, dir_attr: None });
+        }
         let parent_path = match self.path_for_handle(&args.parent).await {
             Ok(path) => path,
             Err(error) => {

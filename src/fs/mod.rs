@@ -6,8 +6,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::RwLock;
 
+use nfs_mamont::auth::Credential;
 use nfs_mamont::consts::nfsv3::{NFS3_COOKIEVERFSIZE, NFS3_CREATEVERFSIZE};
 use nfs_mamont::vfs;
+use nfs_mamont::vfs::access;
 use nfs_mamont::vfs::file;
 use nfs_mamont::vfs::read_dir;
 use nfs_mamont::vfs::set_attr;
@@ -88,6 +90,68 @@ impl MirrorFS {
     /// Returns a handle for a path under the mirror root.
     pub async fn handle_for_path(&self, path: &Path) -> Result<file::Handle, vfs::Error> {
         self.fsmap.write().await.ensure_handle_for_path(path)
+    }
+
+    /// Verifies that `cred` is permitted to perform an operation on the object
+    /// at `handle` that requires the given `required` [`access::Mask`] rights.
+    ///
+    /// The decision reuses the real [`access::Access`] implementation, so it
+    /// reflects the same permissions the `ACCESS` procedure reports. Returns
+    /// `Ok(())` when every required right is granted, otherwise an
+    /// authorization failure (currently always [`vfs::Error::Access`]).
+    ///
+    /// Resolving the handle or its metadata may legitimately fail with a "does
+    /// not exist"-style error before any permission decision can be made; such
+    /// errors surface as their natural [`vfs::Error`] and must be propagated by
+    /// the caller as well.
+    ///
+    /// This is the base implementation of the `require_*` helpers; prefer one of
+    /// them over calling this directly with a raw mask.
+    async fn require_access(
+        &self,
+        cred: &Credential,
+        handle: &file::Handle,
+        required: u32,
+    ) -> Result<(), vfs::Error> {
+        let path = self.path_for_handle(handle).await?;
+        let meta = Self::metadata(&path)?;
+        let attr = Self::attr_from_metadata(&meta);
+        let granted = Self::compute_access_mask(&attr, cred, access::Mask::from_wire(required));
+        if granted.contains(required) {
+            Ok(())
+        } else {
+            Err(vfs::Error::Access)
+        }
+    }
+
+    /// Requires the caller to be able to read data or list a directory.
+    async fn require_read(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
+        self.require_access(cred, handle, access::Mask::READ).await
+    }
+
+    /// Requires the caller to be able to look up names in a directory (traverse).
+    async fn require_lookup(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
+        self.require_access(cred, handle, access::Mask::LOOKUP).await
+    }
+
+    /// Requires the caller to be able to modify the contents or attributes of a file.
+    async fn require_modify(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
+        self.require_access(cred, handle, access::Mask::MODIFY).await
+    }
+
+    /// Requires the caller to be able to create entries inside a directory (or grow a file).
+    async fn require_extend(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
+        self.require_access(cred, handle, access::Mask::EXTEND).await
+    }
+
+    /// Requires the caller to be able to delete an entry from a directory.
+    async fn require_delete(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
+        self.require_access(cred, handle, access::Mask::DELETE).await
+    }
+
+    /// Requires the caller to be able to execute a file or search a directory.
+    async fn require_execute(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
+        self.require_access(cred, handle, access::Mask::EXECUTE).await
     }
 
     async fn remove_cached_path(&self, path: &Path) {

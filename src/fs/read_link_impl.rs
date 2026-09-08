@@ -1,3 +1,4 @@
+use nfs_mamont::auth::Credential;
 use nfs_mamont::vfs::{self, file, read_link};
 
 use super::MirrorFS;
@@ -5,8 +6,12 @@ use super::MirrorFS;
 impl read_link::ReadLink for MirrorFS {
     async fn read_link(
         &self,
+        cred: Credential,
         args: read_link::Args,
     ) -> Result<read_link::Success, read_link::Fail> {
+        if let Err(error) = self.require_execute(&cred, &args.file).await {
+            return Err(read_link::Fail { error, symlink_attr: None });
+        }
         let path = match self.path_for_handle(&args.file).await {
             Ok(path) => path,
             Err(error) => {

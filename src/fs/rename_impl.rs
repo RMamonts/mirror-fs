@@ -1,16 +1,31 @@
 use tokio::fs;
 
+use nfs_mamont::auth::Credential;
 use nfs_mamont::vfs::{self, rename};
 
 use super::MirrorFS;
 
 impl rename::Rename for MirrorFS {
-    async fn rename(&self, args: rename::Args) -> Result<rename::Success, rename::Fail> {
+    async fn rename(&self, cred: Credential, args: rename::Args) -> Result<rename::Success, rename::Fail> {
         if matches!(args.from.name.as_str(), "." | "..")
             || matches!(args.to.name.as_str(), "." | "..")
         {
             return Err(rename::Fail {
                 error: vfs::Error::InvalidArgument,
+                from_dir_wcc: vfs::WccData { before: None, after: None },
+                to_dir_wcc: vfs::WccData { before: None, after: None },
+            });
+        }
+        if let Err(error) = self.require_modify(&cred, &args.from.dir).await {
+            return Err(rename::Fail {
+                error,
+                from_dir_wcc: vfs::WccData { before: None, after: None },
+                to_dir_wcc: vfs::WccData { before: None, after: None },
+            });
+        }
+        if let Err(error) = self.require_modify(&cred, &args.to.dir).await {
+            return Err(rename::Fail {
+                error,
                 from_dir_wcc: vfs::WccData { before: None, after: None },
                 to_dir_wcc: vfs::WccData { before: None, after: None },
             });

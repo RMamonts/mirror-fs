@@ -1,9 +1,10 @@
+use nfs_mamont::auth::Credential;
 use nfs_mamont::vfs::{self, rm_dir};
 
 use super::MirrorFS;
 
 impl rm_dir::RmDir for MirrorFS {
-    async fn rm_dir(&self, args: rm_dir::Args) -> Result<rm_dir::Success, rm_dir::Fail> {
+    async fn rm_dir(&self, cred: Credential, args: rm_dir::Args) -> Result<rm_dir::Success, rm_dir::Fail> {
         if args.object.name.as_str() == "." {
             return Err(rm_dir::Fail {
                 error: vfs::Error::InvalidArgument,
@@ -13,6 +14,12 @@ impl rm_dir::RmDir for MirrorFS {
         if args.object.name.as_str() == ".." {
             return Err(rm_dir::Fail {
                 error: vfs::Error::InvalidArgument,
+                dir_wcc: vfs::WccData { before: None, after: None },
+            });
+        }
+        if let Err(error) = self.require_delete(&cred, &args.object.dir).await {
+            return Err(rm_dir::Fail {
+                error,
                 dir_wcc: vfs::WccData { before: None, after: None },
             });
         }
