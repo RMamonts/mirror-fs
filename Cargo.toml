@@ -21,7 +21,7 @@ crossbeam-queue = "0.3.12"
 trait-variant = "0.1.2"
 clap = { version = "4.5.61", features = ["derive"] }
 serde = { version = "1.0.228", features = ["derive"] }
-toml = "0.8.19"
+toml = "1.1.5"
 libc = "0.2"
 
 # Gihub dependencies
