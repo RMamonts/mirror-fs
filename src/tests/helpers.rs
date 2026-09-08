@@ -4,6 +4,7 @@ use std::sync::{Mutex, OnceLock};
 
 use tempfile::TempDir;
 
+use nfs_mamont::auth::{AuthSysParams, Credential};
 use nfs_mamont::vfs;
 use nfs_mamont::vfs::file;
 use nfs_mamont::vfs::lookup;
@@ -55,7 +56,12 @@ impl TestContext {
 
     pub async fn lookup_handle(&self, parent: file::Handle, child_name: &str) -> file::Handle {
         expect_ok(
-            lookup::Lookup::lookup(&self.fs, lookup::Args { parent, name: name(child_name) }).await,
+            lookup::Lookup::lookup(
+                &self.fs,
+                cred(),
+                lookup::Args { parent, name: name(child_name) },
+            )
+            .await,
             "lookup should succeed",
         )
         .file
@@ -64,6 +70,17 @@ impl TestContext {
 
 pub fn name(value: &str) -> file::Name {
     file::Name::new(value.to_owned()).unwrap()
+}
+
+/// A `Credential` for the current process (owner of the test files).
+pub fn cred() -> Credential {
+    Credential::Sys(AuthSysParams {
+        stamp: 0,
+        machine_name: "mirror-fs-tests".to_owned(),
+        uid: 0,
+        gid: 0,
+        gids: Vec::new(),
+    })
 }
 
 pub fn file_path(value: &str) -> file::Path {

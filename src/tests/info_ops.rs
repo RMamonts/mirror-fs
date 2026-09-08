@@ -16,8 +16,8 @@ use nfs_mamont::vfs::read_dir_plus;
 use nfs_mamont::vfs::read_link;
 
 use super::helpers::{
-    alloc_slice, create_dir, create_symlink, expect_err, expect_ok, slice_to_vec, write_file,
-    TestContext,
+    alloc_slice, create_dir, create_symlink, cred, expect_err, expect_ok, slice_to_vec,
+    write_file, TestContext,
 };
 
 #[tokio::test]
@@ -29,7 +29,7 @@ async fn access_returns_requested_mask() {
 
     let result = expect_ok(
         access::Access::access(
-            &ctx.fs,
+            &ctx.fs, cred(),
             access::Args {
                 file: handle,
                 mask: access::Mask::from_wire(access::Mask::READ | access::Mask::MODIFY),
@@ -53,7 +53,7 @@ async fn access_respects_file_permissions() {
 
     let result = expect_ok(
         access::Access::access(
-            &ctx.fs,
+            &ctx.fs, cred(),
             access::Args {
                 file: handle,
                 mask: access::Mask::from_wire(
@@ -80,7 +80,7 @@ async fn commit_flushes_regular_file_and_rejects_directory() {
     let dir_handle = ctx.lookup_handle(root, "dir").await;
 
     let success = expect_ok(
-        commit::Commit::commit(&ctx.fs, commit::Args { file: file_handle, offset: 0, count: 0 })
+        commit::Commit::commit(&ctx.fs, cred(), commit::Args { file: file_handle, offset: 0, count: 0 })
             .await,
         "commit should succeed for regular files",
     );
@@ -88,7 +88,7 @@ async fn commit_flushes_regular_file_and_rejects_directory() {
     assert_eq!(success.verifier.0.len(), 8);
 
     let fail = expect_err(
-        commit::Commit::commit(&ctx.fs, commit::Args { file: dir_handle, offset: 0, count: 0 })
+        commit::Commit::commit(&ctx.fs, cred(), commit::Args { file: dir_handle, offset: 0, count: 0 })
             .await,
         "commit should fail for directories",
     );
@@ -102,7 +102,7 @@ async fn fs_info_returns_server_limits() {
     let root = ctx.root_handle().await;
 
     let result = expect_ok(
-        fs_info::FsInfo::fs_info(&ctx.fs, fs_info::Args { root }).await,
+        fs_info::FsInfo::fs_info(&ctx.fs, cred(), fs_info::Args { root }).await,
         "fs_info should succeed",
     );
     let properties = result.properties.bits();
@@ -122,7 +122,7 @@ async fn fs_stat_returns_zero_counters() {
     let root = ctx.root_handle().await;
 
     let result = expect_ok(
-        fs_stat::FsStat::fs_stat(&ctx.fs, fs_stat::Args { root }).await,
+        fs_stat::FsStat::fs_stat(&ctx.fs, cred(), fs_stat::Args { root }).await,
         "fs_stat should succeed",
     );
 
@@ -141,7 +141,7 @@ async fn get_attr_returns_metadata() {
     let handle = ctx.lookup_handle(root, "file.txt").await;
 
     let result = expect_ok(
-        get_attr::GetAttr::get_attr(&ctx.fs, get_attr::Args { file: handle }).await,
+        get_attr::GetAttr::get_attr(&ctx.fs, cred(), get_attr::Args { file: handle }).await,
         "get_attr should succeed",
     );
 
@@ -157,7 +157,7 @@ async fn path_conf_reports_limits() {
     let handle = ctx.lookup_handle(root, "file.txt").await;
 
     let result = expect_ok(
-        path_conf::PathConf::path_conf(&ctx.fs, path_conf::Args { file: handle }).await,
+        path_conf::PathConf::path_conf(&ctx.fs, cred(), path_conf::Args { file: handle }).await,
         "path_conf should succeed",
     );
 
@@ -181,7 +181,7 @@ async fn read_reads_requested_window_and_rejects_directories() {
 
     let success = expect_ok(
         read::Read::read(
-            &ctx.fs,
+            &ctx.fs, cred(),
             read::Args { file: file_handle, offset: 2, count: 3 },
             alloc_slice(3).await,
         )
@@ -194,7 +194,7 @@ async fn read_reads_requested_window_and_rejects_directories() {
 
     let eof = expect_ok(
         read::Read::read(
-            &ctx.fs,
+            &ctx.fs, cred(),
             read::Args {
                 file: ctx.lookup_handle(ctx.root_handle().await, "file.txt").await,
                 offset: 99,
@@ -210,7 +210,7 @@ async fn read_reads_requested_window_and_rejects_directories() {
 
     let fail = expect_err(
         read::Read::read(
-            &ctx.fs,
+            &ctx.fs, cred(),
             read::Args { file: dir_handle, offset: 0, count: 1 },
             alloc_slice(1).await,
         )
@@ -230,7 +230,7 @@ async fn read_dir_returns_sorted_entries_and_rejects_bad_cookie() {
 
     let success = expect_ok(
         read_dir::ReadDir::read_dir(
-            &ctx.fs,
+            &ctx.fs, cred(),
             read_dir::Args {
                 dir: root.clone(),
                 cookie: read_dir::Cookie::new(0),
@@ -247,7 +247,7 @@ async fn read_dir_returns_sorted_entries_and_rejects_bad_cookie() {
 
     let fail = expect_err(
         read_dir::ReadDir::read_dir(
-            &ctx.fs,
+            &ctx.fs, cred(),
             read_dir::Args {
                 dir: root,
                 cookie: read_dir::Cookie::new(1),
@@ -271,7 +271,7 @@ async fn read_dir_plus_returns_handles_and_supports_pagination() {
 
     let first = expect_ok(
         read_dir_plus::ReadDirPlus::read_dir_plus(
-            &ctx.fs,
+            &ctx.fs, cred(),
             read_dir_plus::Args {
                 dir: root.clone(),
                 cookie: read_dir::Cookie::new(0),
@@ -292,7 +292,7 @@ async fn read_dir_plus_returns_handles_and_supports_pagination() {
 
     let second = expect_ok(
         read_dir_plus::ReadDirPlus::read_dir_plus(
-            &ctx.fs,
+            &ctx.fs, cred(),
             read_dir_plus::Args {
                 dir: root,
                 cookie: first.entries.last().unwrap().cookie,
@@ -319,14 +319,14 @@ async fn read_link_returns_target_and_rejects_regular_files() {
     let file_handle = ctx.lookup_handle(root, "file.txt").await;
 
     let success = expect_ok(
-        read_link::ReadLink::read_link(&ctx.fs, read_link::Args { file: link_handle }).await,
+        read_link::ReadLink::read_link(&ctx.fs, cred(), read_link::Args { file: link_handle }).await,
         "read_link should succeed",
     );
     assert!(matches!(success.symlink_attr.unwrap().file_type, file::Type::Symlink));
     assert_eq!(success.data.as_path(), Path::new("target.txt"));
 
     let fail = expect_err(
-        read_link::ReadLink::read_link(&ctx.fs, read_link::Args { file: file_handle }).await,
+        read_link::ReadLink::read_link(&ctx.fs, cred(), read_link::Args { file: file_handle }).await,
         "read_link should fail for regular files",
     );
     assert_eq!(fail.error, vfs::Error::InvalidArgument);
