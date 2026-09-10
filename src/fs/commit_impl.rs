@@ -5,7 +5,11 @@ use nfs_mamont::vfs::commit;
 use super::*;
 
 impl commit::Commit for MirrorFS {
-    async fn commit(&self, cred: Credential, args: commit::Args) -> Result<commit::Success, commit::Fail> {
+    async fn commit(
+        &self,
+        cred: Credential,
+        args: commit::Args,
+    ) -> Result<commit::Success, commit::Fail> {
         if let Err(error) = self.require_write(&cred, &args.file).await {
             return Err(commit::Fail {
                 error,

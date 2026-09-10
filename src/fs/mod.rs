@@ -68,7 +68,8 @@ impl MirrorFS {
         let generation =
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_nanos()
                 as u64;
-        let authorizer: Arc<dyn auth::Authorizer> = Arc::new(auth::posix::PosixAuthorizer::new(root_squash));
+        let authorizer: Arc<dyn auth::Authorizer> =
+            Arc::new(auth::posix::PosixAuthorizer::new(root_squash));
         Self { fsmap: RwLock::new(FsMap::new(root)), generation, authorizer }
     }
 
@@ -131,22 +132,38 @@ impl MirrorFS {
     }
 
     /// Requires [`auth::Access::Read`]: read file data or list a directory.
-    async fn require_read(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
+    async fn require_read(
+        &self,
+        cred: &Credential,
+        handle: &file::Handle,
+    ) -> Result<(), vfs::Error> {
         self.require_access(cred, handle, auth::Access::Read).await
     }
 
     /// Requires [`auth::Access::Search`]: search a directory for a name.
-    async fn require_search(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
+    async fn require_search(
+        &self,
+        cred: &Credential,
+        handle: &file::Handle,
+    ) -> Result<(), vfs::Error> {
         self.require_access(cred, handle, auth::Access::Search).await
     }
 
     /// Requires [`auth::Access::Modify`]: modify a file's contents or attributes.
-    async fn require_write(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
+    async fn require_write(
+        &self,
+        cred: &Credential,
+        handle: &file::Handle,
+    ) -> Result<(), vfs::Error> {
         self.require_access(cred, handle, auth::Access::Modify).await
     }
 
     /// Requires [`auth::Access::ModifyDir`]: create, remove or rename an entry.
-    async fn require_dir_modify(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
+    async fn require_dir_modify(
+        &self,
+        cred: &Credential,
+        handle: &file::Handle,
+    ) -> Result<(), vfs::Error> {
         self.require_access(cred, handle, auth::Access::ModifyDir).await
     }
 

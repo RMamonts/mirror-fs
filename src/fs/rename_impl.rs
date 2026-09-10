@@ -8,7 +8,11 @@ use std::os::unix::fs::MetadataExt;
 use super::MirrorFS;
 
 impl rename::Rename for MirrorFS {
-    async fn rename(&self, cred: Credential, args: rename::Args) -> Result<rename::Success, rename::Fail> {
+    async fn rename(
+        &self,
+        cred: Credential,
+        args: rename::Args,
+    ) -> Result<rename::Success, rename::Fail> {
         if matches!(args.from.name.as_str(), "." | "..")
             || matches!(args.to.name.as_str(), "." | "..")
         {

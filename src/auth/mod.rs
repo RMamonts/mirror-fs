@@ -64,5 +64,10 @@ pub trait Authorizer: std::fmt::Debug + Send + Sync {
     fn sticky_allows(&self, cred: &Credentials, parent: &file::Attr, victim_uid: u32) -> bool;
 
     /// The advisory `ACCESS3` mask granted on `attr` among `requested`.
-    fn access3(&self, cred: &Credentials, attr: &file::Attr, requested: access::Mask) -> access::Mask;
+    fn access3(
+        &self,
+        cred: &Credentials,
+        attr: &file::Attr,
+        requested: access::Mask,
+    ) -> access::Mask;
 }

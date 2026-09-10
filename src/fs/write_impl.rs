@@ -9,7 +9,11 @@ use nfs_mamont::Buffer;
 use super::MirrorFS;
 
 impl<B: Buffer> write::Write<B> for MirrorFS {
-    async fn write(&self, cred: Credential, args: write::Args<B>) -> Result<write::Success, write::Fail> {
+    async fn write(
+        &self,
+        cred: Credential,
+        args: write::Args<B>,
+    ) -> Result<write::Success, write::Fail> {
         if let Err(error) = self.require_write(&cred, &args.file).await {
             return Err(write::Fail {
                 error,

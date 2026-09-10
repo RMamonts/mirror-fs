@@ -6,7 +6,11 @@ use std::os::unix::fs::MetadataExt;
 use super::MirrorFS;
 
 impl rm_dir::RmDir for MirrorFS {
-    async fn rm_dir(&self, cred: Credential, args: rm_dir::Args) -> Result<rm_dir::Success, rm_dir::Fail> {
+    async fn rm_dir(
+        &self,
+        cred: Credential,
+        args: rm_dir::Args,
+    ) -> Result<rm_dir::Success, rm_dir::Fail> {
         if args.object.name.as_str() == "." {
             return Err(rm_dir::Fail {
                 error: vfs::Error::InvalidArgument,
@@ -64,7 +68,7 @@ impl rm_dir::RmDir for MirrorFS {
             }
         };
         if let Err(error) = self.check_sticky(&cred, &dir_meta, child_meta.uid()).await {
-            return Err(rm_dir::Fail { error, dir_wcc: Self::wcc_data(&dir_path, before) })
+            return Err(rm_dir::Fail { error, dir_wcc: Self::wcc_data(&dir_path, before) });
         }
 
         match std::fs::remove_dir(&child_path) {

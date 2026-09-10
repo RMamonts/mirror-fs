@@ -4,7 +4,11 @@ use nfs_mamont::vfs::{self, symlink};
 use super::MirrorFS;
 
 impl symlink::Symlink for MirrorFS {
-    async fn symlink(&self, cred: Credential, args: symlink::Args) -> Result<symlink::Success, symlink::Fail> {
+    async fn symlink(
+        &self,
+        cred: Credential,
+        args: symlink::Args,
+    ) -> Result<symlink::Success, symlink::Fail> {
         if let Err(error) = Self::ensure_name_allowed(&args.object.name) {
             return Err(symlink::Fail {
                 error,

@@ -54,7 +54,12 @@ impl Authorizer for PosixAuthorizer {
         sticky_allows(cred, parent, victim_uid)
     }
 
-    fn access3(&self, cred: &Credentials, attr: &file::Attr, requested: access::Mask) -> access::Mask {
+    fn access3(
+        &self,
+        cred: &Credentials,
+        attr: &file::Attr,
+        requested: access::Mask,
+    ) -> access::Mask {
         compute_access3(cred, attr, requested)
     }
 }
