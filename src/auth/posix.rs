@@ -1,182 +1,188 @@
-//! POSIX-style authorization for `AUTH_SYS` credentials.
+//! POSIX user/group/other (rwx + sticky bit) authorization.
 //!
-//! The whole rwx model — class classification (owner/group/other), the
-//! read/write/execute decision, and the translation onto NFS [`access::Mask`]
-//! bits — lives here, owned by [`PosixPolicy`]. It never sees a
-//! [`Credential`]; it is constructed from the already-picked [`AuthSysParams`].
+//! [`PosixAuthorizer`] implements the [`Authorizer`] interface using the
+//! classic POSIX dac model: pick one class (owner / group / other) by the
+//! caller's identity, compare its rwx triple, apply the sticky bit where needed,
+//! and fold `UID 0` (unless squashed) into a special privileged path.
 
-use nfs_mamont::auth::AuthSysParams;
+use nfs_mamont::auth::Credential;
 use nfs_mamont::vfs::access;
 use nfs_mamont::vfs::file;
 
-use super::policy::Policy;
+use super::{Access, Authorizer, Credentials};
 
-/// The permission class a caller belongs to with respect to an object's owner
-/// and group. It selects which of the three `rwx` triples in `mode` applies.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Class {
-    Owner,
-    Group,
-    Other,
+/// Default anonymous uid/gid, used for `AUTH_NONE` and for squashed root.
+const ANON_UID: u32 = 65534;
+const ANON_GID: u32 = 65534;
+
+/// rwx primitives, encoded as the low three permission bits.
+const MODE_READ: u32 = 0b100;
+const MODE_WRITE: u32 = 0b010;
+const MODE_EXEC: u32 = 0b001;
+
+/// POSIX authorization policy over rwx mode bits and the sticky bit.
+#[derive(Debug)]
+pub struct PosixAuthorizer {
+    /// When `true`, a remote `UID 0` is squashed to the anonymous identity and
+    /// gains no privileges.
+    root_squash: bool,
 }
 
-impl Class {
-    /// Bit offset within `mode` for this class: owner is `0o700`, group `0o070`,
-    /// other `0o007`.
-    fn shift(self) -> u32 {
-        match self {
-            Class::Owner => 6,
-            Class::Group => 3,
-            Class::Other => 0,
-        }
+impl PosixAuthorizer {
+    /// Creates a policy with the given `root_squash` option.
+    pub fn new(root_squash: bool) -> Self {
+        Self { root_squash }
     }
 }
 
-/// A POSIX `rwx` access decision.
+impl Authorizer for PosixAuthorizer {
+    fn map_credentials(&self, cred: &Credential) -> Credentials {
+        resolve_credential(cred.clone(), self.root_squash)
+    }
+
+    fn allows(&self, cred: &Credentials, attr: &file::Attr, access: Access) -> bool {
+        let required = match access {
+            Access::Read => MODE_READ,
+            Access::Search => MODE_EXEC,
+            Access::Modify => MODE_WRITE,
+            Access::ModifyDir => MODE_WRITE | MODE_EXEC,
+        };
+        mode_allows(cred, attr, required)
+    }
+
+    fn sticky_allows(&self, cred: &Credentials, parent: &file::Attr, victim_uid: u32) -> bool {
+        sticky_allows(cred, parent, victim_uid)
+    }
+
+    fn access3(&self, cred: &Credentials, attr: &file::Attr, requested: access::Mask) -> access::Mask {
+        compute_access3(cred, attr, requested)
+    }
+}
+
+/// Resolves a raw credential into a flat identity.
 ///
-/// This is the *single* representation the authorization check actually
-/// operates on — never the raw [`access::Mask`]. NFS flags are only translated
-/// into [`Rwx`] to ask "may they?", and back into [`access::Mask`] to answer.
-#[derive(Clone, Copy, Debug, Default)]
-struct Rwx {
-    read: bool,
-    write: bool,
-    execute: bool,
-}
+/// `root_squash` is consulted *before* `privileged` is derived: a squashed
+/// UID 0 collapses to the anonymous identity and gains no privileges.
+fn resolve_credential(cred: Credential, root_squash: bool) -> Credentials {
+    let (uid, gid, groups) = match cred {
+        Credential::None => (ANON_UID, ANON_GID, Vec::new()),
+        Credential::Sys(params) => (params.uid, params.gid, dedup_groups(&params.gids)),
+    };
 
-impl Rwx {
-    fn new(read: bool, write: bool, execute: bool) -> Self {
-        Self { read, write, execute }
+    if root_squash && uid == 0 {
+        return Credentials { uid: ANON_UID, gid: ANON_GID, groups: Vec::new(), privileged: false };
     }
 
-    /// Whether this set grants every primitive that `need` requires.
-    fn satisfies(&self, need: &Rwx) -> bool {
-        (!need.read || self.read) && (!need.write || self.write) && (!need.execute || self.execute)
-    }
+    Credentials { uid, gid, groups, privileged: uid == 0 }
 }
 
-/// POSIX classification: owner by `uid`, then primary `gid`, then any
-/// supplementary `gid`, otherwise "other".
-fn sys_class(params: &AuthSysParams, attr: &file::Attr) -> Class {
-    if params.uid == attr.uid {
-        Class::Owner
-    } else if params.gid == attr.gid || params.gids.contains(&attr.gid) {
-        Class::Group
+/// The rwx triple granted by the caller's class on `attr`. Exactly one class
+/// (owner / group / other) is selected; class bits never merge.
+fn select_class_bits(cred: &Credentials, attr: &file::Attr) -> u32 {
+    if cred.uid == attr.uid {
+        (attr.mode >> 6) & 0b111
+    } else if cred.gid == attr.gid || cred.groups.contains(&attr.gid) {
+        (attr.mode >> 3) & 0b111
     } else {
-        Class::Other
+        attr.mode & 0b111
     }
 }
 
-/// POSIX authorization — step 2. Given the caller's [`Class`] (hence which
-/// triple of `mode` to use) and whether it is root, grants the [`Rwx`] the
-/// caller effectively has.
+/// Does the caller hold every primitive in `required`?
 ///
-/// Root may read and write anything and traverse everywhere, but still needs at
-/// least one execute bit somewhere in `mode` before it may run or search —
-/// mirroring the kernel.
-fn posix_perms(class: Class, is_root: bool, mode: u32) -> Rwx {
-    let shift = class.shift();
-    let r = (mode >> shift) & 0o4 != 0;
-    let w = (mode >> shift) & 0o2 != 0;
-    let any_x = mode & 0o111 != 0;
-    Rwx::new(
-        r || is_root,
-        w || is_root,
-        ((mode >> shift) & 0o1 != 0) || (is_root && any_x),
-    )
+/// Root goes down a separate path rather than being folded into the bit
+/// comparison.
+fn mode_allows(cred: &Credentials, attr: &file::Attr, required: u32) -> bool {
+    if cred.privileged {
+        return privileged_mode_allows(attr, required);
+    }
+    (select_class_bits(cred, attr) & required) == required
 }
 
-// ---------------------------------------------------------------------------
-// NFS <-> rwx translation (both directions).
-// ---------------------------------------------------------------------------
+/// Privileged (un-squashed) root may act as any class, so it effectively holds
+/// the *union* of the owner, group and other bits: a right still grants nothing
+/// if no class sets that bit anywhere. Directory `X` (traversal) is always
+/// allowed; executing a regular file still requires a real execute bit.
+fn privileged_mode_allows(attr: &file::Attr, required: u32) -> bool {
+    if (required & MODE_EXEC) != 0 && matches!(attr.file_type, file::Type::Directory) {
+        return true;
+    }
+    let union = (attr.mode >> 6) | (attr.mode >> 3) | attr.mode;
+    (union & required) == required
+}
 
-const ALL_RIGHTS: [u32; 6] = [
-    access::Mask::READ,
-    access::Mask::LOOKUP,
-    access::Mask::MODIFY,
-    access::Mask::EXTEND,
-    access::Mask::DELETE,
-    access::Mask::EXECUTE,
-];
+/// Sticky-bit (`S_ISVTX`) ownership check for unlink/rmdir/rename.
+///
+/// Allowed when the sticky bit is unset, the caller is privileged, owns the
+/// parent directory, or owns the victim.
+fn sticky_allows(cred: &Credentials, parent: &file::Attr, victim_uid: u32) -> bool {
+    (parent.mode & 0o1000) == 0
+        || cred.privileged
+        || cred.uid == parent.uid
+        || cred.uid == victim_uid
+}
 
-/// The `rwx` primitive(s) a single NFS right demands in order to be granted.
-/// Used to frame the decision in rwx terms.
-fn nfs_to_rwx(right: u32) -> Rwx {
-    match right {
-        access::Mask::READ => Rwx::new(true, false, false),
-        // MODIFY / EXTEND both reduce to the write bit.
-        access::Mask::MODIFY | access::Mask::EXTEND => Rwx::new(false, true, false),
-        // EXECUTE, LOOKUP (search) and DELETE map onto the execute bit.
-        access::Mask::EXECUTE | access::Mask::LOOKUP | access::Mask::DELETE => {
-            Rwx::new(false, false, true)
+/// The advisory `ACCESS3` mask granted on `attr` among `requested`.
+///
+/// Each ACCESS3 bit is decided by the *set* of rwx primitives it needs for the
+/// given object type; there is intentionally no reverse "NFS bit -> single rwx
+/// primitive" map.
+fn compute_access3(cred: &Credentials, attr: &file::Attr, requested: access::Mask) -> access::Mask {
+    const READ: u32 = access::Mask::READ;
+    const LOOKUP: u32 = access::Mask::LOOKUP;
+    const MODIFY: u32 = access::Mask::MODIFY;
+    const EXTEND: u32 = access::Mask::EXTEND;
+    const DELETE: u32 = access::Mask::DELETE;
+    const EXECUTE: u32 = access::Mask::EXECUTE;
+
+    let mut allowed = 0u32;
+
+    match attr.file_type {
+        file::Type::Directory => {
+            if mode_allows(cred, attr, MODE_READ) {
+                allowed |= READ;
+            }
+            if mode_allows(cred, attr, MODE_EXEC) {
+                allowed |= LOOKUP;
+            }
+            if mode_allows(cred, attr, MODE_WRITE | MODE_EXEC) {
+                allowed |= MODIFY | EXTEND | DELETE;
+            }
         }
-        _ => Rwx::default(),
-    }
-}
-
-/// The NFS right(s) that follow from holding an `rwx` permission.
-fn rwx_to_nfs(rights: &Rwx) -> u32 {
-    let mut flags = 0;
-    if rights.read {
-        flags |= access::Mask::READ;
-    }
-    if rights.write {
-        flags |= access::Mask::MODIFY | access::Mask::EXTEND;
-    }
-    if rights.execute {
-        flags |= access::Mask::EXECUTE | access::Mask::DELETE;
-    }
-    flags
-}
-
-/// The shared rwx decision and NFS translation, parameterized only by the
-/// caller's [`Class`] and whether it is root. Used by both [`PosixPolicy`] and
-/// the anonymous policy.
-pub(crate) fn grant(class: Class, is_root: bool, attr: &file::Attr, requested: access::Mask) -> access::Mask {
-    // (1) which triple applies, (2) the posix rwx decision.
-    let granted = posix_perms(class, is_root, attr.mode);
-    let is_dir = matches!(attr.file_type, file::Type::Directory);
-
-    // (3) the NFS rights that follow from the granted rwx.
-    let mut result = rwx_to_nfs(&granted) & requested.bits();
-
-    // LOOKUP (search) is a directory-only right.
-    if !is_dir {
-        result &= !access::Mask::LOOKUP;
-    }
-
-    // (4) affirm each surviving right against the rwx it demands, so the
-    // decision is verifiably rwx-based in both translation directions.
-    for right in ALL_RIGHTS {
-        if (result & right) != 0 && !granted.satisfies(&nfs_to_rwx(right)) {
-            result &= !right;
+        file::Type::Regular => {
+            if mode_allows(cred, attr, MODE_READ) {
+                allowed |= READ;
+            }
+            if mode_allows(cred, attr, MODE_WRITE) {
+                allowed |= MODIFY | EXTEND;
+            }
+            if mode_allows(cred, attr, MODE_EXEC) {
+                allowed |= EXECUTE;
+            }
+        }
+        file::Type::Symlink => {
+            // Symlink permissions do not take part in POSIX DAC.
+        }
+        _ => {
+            // FIFO/socket/device follow the regular-file read/write parts.
+            if mode_allows(cred, attr, MODE_READ) {
+                allowed |= READ;
+            }
+            if mode_allows(cred, attr, MODE_WRITE) {
+                allowed |= MODIFY | EXTEND;
+            }
         }
     }
 
-    access::Mask::from_wire(result)
+    access::Mask::from_wire(allowed & requested.bits())
 }
 
-/// POSIX authorization for a resolved `AUTH_SYS` identity.
-pub struct PosixPolicy {
-    params: AuthSysParams,
-}
-
-impl PosixPolicy {
-    pub fn new(params: AuthSysParams) -> Self {
-        Self { params }
+fn dedup_groups(gids: &[u32]) -> Vec<u32> {
+    let mut seen = Vec::new();
+    for gid in gids {
+        if !seen.contains(gid) {
+            seen.push(*gid);
+        }
     }
-
-    fn is_root(&self) -> bool {
-        self.params.uid == 0
-    }
-
-    fn class_of(&self, attr: &file::Attr) -> Class {
-        sys_class(&self.params, attr)
-    }
-}
-
-impl Policy for PosixPolicy {
-    fn grant(&self, attr: &file::Attr, requested: access::Mask) -> access::Mask {
-        grant(self.class_of(attr), self.is_root(), attr, requested)
-    }
+    seen
 }

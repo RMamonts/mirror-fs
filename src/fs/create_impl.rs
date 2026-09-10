@@ -13,7 +13,7 @@ impl create::Create for MirrorFS {
                 wcc_data: vfs::WccData { before: None, after: None },
             });
         }
-        if let Err(error) = self.require_extend(&cred, &args.object.dir).await {
+        if let Err(error) = self.require_dir_modify(&cred, &args.object.dir).await {
             return Err(create::Fail {
                 error,
                 wcc_data: vfs::WccData { before: None, after: None },

@@ -5,7 +5,7 @@ use super::MirrorFS;
 
 impl set_attr::SetAttr for MirrorFS {
     async fn set_attr(&self, cred: Credential, args: set_attr::Args) -> Result<set_attr::Success, set_attr::Fail> {
-        if let Err(error) = self.require_modify(&cred, &args.file).await {
+        if let Err(error) = self.require_write(&cred, &args.file).await {
             return Err(set_attr::Fail {
                 error,
                 wcc_data: vfs::WccData { before: None, after: None },

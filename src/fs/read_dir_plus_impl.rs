@@ -13,7 +13,7 @@ impl read_dir_plus::ReadDirPlus for MirrorFS {
         if let Err(error) = self.require_read(&cred, &args.dir).await {
             return Err(read_dir_plus::Fail { error, dir_attr: None });
         }
-        if let Err(error) = self.require_lookup(&cred, &args.dir).await {
+        if let Err(error) = self.require_search(&cred, &args.dir).await {
             return Err(read_dir_plus::Fail { error, dir_attr: None });
         }
         let dir_path = match self.path_for_handle(&args.dir).await {

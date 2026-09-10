@@ -2,6 +2,7 @@ use std::fs::Metadata;
 use std::io::ErrorKind;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::RwLock;
@@ -9,7 +10,6 @@ use tokio::sync::RwLock;
 use nfs_mamont::auth::Credential;
 use nfs_mamont::consts::nfsv3::{NFS3_COOKIEVERFSIZE, NFS3_CREATEVERFSIZE};
 use nfs_mamont::vfs;
-use nfs_mamont::vfs::access;
 use nfs_mamont::vfs::file;
 use nfs_mamont::vfs::read_dir;
 use nfs_mamont::vfs::set_attr;
@@ -56,16 +56,20 @@ const DEFAULT_SET_ATTR: set_attr::NewAttr = set_attr::NewAttr {
 pub struct MirrorFS {
     fsmap: RwLock<FsMap>,
     generation: u64,
+    authorizer: Arc<dyn auth::Authorizer>,
 }
 
 impl MirrorFS {
     /// Creates a new mirror file system with the given root path.
-    pub fn new(root: PathBuf) -> Self {
+    ///
+    /// `root_squash` disables remote root (UID 0) privileges when `true`.
+    pub fn new(root: PathBuf, root_squash: bool) -> Self {
         let root = std::fs::canonicalize(&root).unwrap_or(root);
         let generation =
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_nanos()
                 as u64;
-        Self { fsmap: RwLock::new(FsMap::new(root)), generation }
+        let authorizer: Arc<dyn auth::Authorizer> = Arc::new(auth::posix::PosixAuthorizer::new(root_squash));
+        Self { fsmap: RwLock::new(FsMap::new(root)), generation, authorizer }
     }
 
     /// Returns the root handle.
@@ -93,66 +97,74 @@ impl MirrorFS {
         self.fsmap.write().await.ensure_handle_for_path(path)
     }
 
-    /// Verifies that `cred` is permitted to perform an operation on the object
-    /// at `handle` that requires the given `required` [`access::Mask`] rights.
+    /// Resolves `cred` (credential mapping + root squash, once) via the
+    /// configured authorizer and stores it for reuse within a single procedure.
+    fn credentials(&self, cred: &Credential) -> auth::Credentials {
+        self.authorizer.map_credentials(cred)
+    }
+
+    /// Verifies that the resolved caller holds the `access` intent on the
+    /// object at `handle`, delegating the decision to the configured
+    /// [`auth::Authorizer`].
     ///
-    /// The decision reuses the real [`access::Access`] implementation, so it
-    /// reflects the same permissions the `ACCESS` procedure reports. Returns
-    /// `Ok(())` when every required right is granted, otherwise an
-    /// authorization failure (currently always [`vfs::Error::Access`]).
-    ///
-    /// Resolving the handle or its metadata may legitimately fail with a "does
-    /// not exist"-style error before any permission decision can be made; such
+    /// Handle resolution or metadata lookup may legitimately fail with a
+    /// "does not exist"-style error before any permission decision is made; such
     /// errors surface as their natural [`vfs::Error`] and must be propagated by
-    /// the caller as well.
+    /// the caller as well. A permission failure is reported as [`vfs::Error::Access`].
     ///
     /// This is the base implementation of the `require_*` helpers; prefer one of
-    /// them over calling this directly with a raw mask.
+    /// them over calling this directly.
     async fn require_access(
         &self,
         cred: &Credential,
         handle: &file::Handle,
-        required: u32,
+        access: auth::Access,
     ) -> Result<(), vfs::Error> {
         let path = self.path_for_handle(handle).await?;
         let meta = Self::metadata(&path)?;
         let attr = Self::attr_from_metadata(&meta);
-        let authorization = auth::Authorization::from_credential(cred.clone());
-        if authorization.allowed(&attr, access::Mask::from_wire(required)) {
+        if self.authorizer.allows(&self.credentials(cred), &attr, access) {
             Ok(())
         } else {
             Err(vfs::Error::Access)
         }
     }
 
-    /// Requires the caller to be able to read data or list a directory.
+    /// Requires [`auth::Access::Read`]: read file data or list a directory.
     async fn require_read(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
-        self.require_access(cred, handle, access::Mask::READ).await
+        self.require_access(cred, handle, auth::Access::Read).await
     }
 
-    /// Requires the caller to be able to look up names in a directory (traverse).
-    async fn require_lookup(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
-        self.require_access(cred, handle, access::Mask::LOOKUP).await
+    /// Requires [`auth::Access::Search`]: search a directory for a name.
+    async fn require_search(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
+        self.require_access(cred, handle, auth::Access::Search).await
     }
 
-    /// Requires the caller to be able to modify the contents or attributes of a file.
-    async fn require_modify(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
-        self.require_access(cred, handle, access::Mask::MODIFY).await
+    /// Requires [`auth::Access::Modify`]: modify a file's contents or attributes.
+    async fn require_write(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
+        self.require_access(cred, handle, auth::Access::Modify).await
     }
 
-    /// Requires the caller to be able to create entries inside a directory (or grow a file).
-    async fn require_extend(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
-        self.require_access(cred, handle, access::Mask::EXTEND).await
+    /// Requires [`auth::Access::ModifyDir`]: create, remove or rename an entry.
+    async fn require_dir_modify(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
+        self.require_access(cred, handle, auth::Access::ModifyDir).await
     }
 
-    /// Requires the caller to be able to delete an entry from a directory.
-    async fn require_delete(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
-        self.require_access(cred, handle, access::Mask::DELETE).await
-    }
-
-    /// Requires the caller to be able to execute a file or search a directory.
-    async fn require_execute(&self, cred: &Credential, handle: &file::Handle) -> Result<(), vfs::Error> {
-        self.require_access(cred, handle, access::Mask::EXECUTE).await
+    /// Requires the caller to pass the sticky-bit check on `parent` against a
+    /// victim with `victim_uid`, building `parent`'s attributes from a directory
+    /// [`Metadata`]. Always succeeds when the sticky bit is unset.
+    async fn check_sticky(
+        &self,
+        cred: &Credential,
+        parent_meta: &Metadata,
+        victim_uid: u32,
+    ) -> Result<(), vfs::Error> {
+        let parent_attr = Self::attr_from_metadata(parent_meta);
+        if self.authorizer.sticky_allows(&self.credentials(cred), &parent_attr, victim_uid) {
+            Ok(())
+        } else {
+            Err(vfs::Error::Permission)
+        }
     }
 
     async fn remove_cached_path(&self, path: &Path) {

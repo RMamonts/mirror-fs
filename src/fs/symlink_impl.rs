@@ -11,7 +11,7 @@ impl symlink::Symlink for MirrorFS {
                 dir_wcc: vfs::WccData { before: None, after: None },
             });
         }
-        if let Err(error) = self.require_extend(&cred, &args.object.dir).await {
+        if let Err(error) = self.require_dir_modify(&cred, &args.object.dir).await {
             return Err(symlink::Fail {
                 error,
                 dir_wcc: vfs::WccData { before: None, after: None },

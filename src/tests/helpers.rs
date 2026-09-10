@@ -42,7 +42,7 @@ pub struct TestContext {
 impl TestContext {
     pub fn new() -> Self {
         let tempdir = tempfile::tempdir().unwrap();
-        let fs = MirrorFS::new(tempdir.path().to_path_buf());
+        let fs = MirrorFS::new(tempdir.path().to_path_buf(), false);
         Self { tempdir, fs }
     }
 
