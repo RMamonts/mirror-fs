@@ -1,16 +1,37 @@
 use tokio::fs;
 
+use nfs_mamont::auth::Credential;
 use nfs_mamont::vfs::{self, rename};
+
+use std::os::unix::fs::MetadataExt;
 
 use super::MirrorFS;
 
 impl rename::Rename for MirrorFS {
-    async fn rename(&self, args: rename::Args) -> Result<rename::Success, rename::Fail> {
+    async fn rename(
+        &self,
+        cred: Credential,
+        args: rename::Args,
+    ) -> Result<rename::Success, rename::Fail> {
         if matches!(args.from.name.as_str(), "." | "..")
             || matches!(args.to.name.as_str(), "." | "..")
         {
             return Err(rename::Fail {
                 error: vfs::Error::InvalidArgument,
+                from_dir_wcc: vfs::WccData { before: None, after: None },
+                to_dir_wcc: vfs::WccData { before: None, after: None },
+            });
+        }
+        if let Err(error) = self.require_dir_modify(&cred, &args.from.dir).await {
+            return Err(rename::Fail {
+                error,
+                from_dir_wcc: vfs::WccData { before: None, after: None },
+                to_dir_wcc: vfs::WccData { before: None, after: None },
+            });
+        }
+        if let Err(error) = self.require_dir_modify(&cred, &args.to.dir).await {
+            return Err(rename::Fail {
+                error,
                 from_dir_wcc: vfs::WccData { before: None, after: None },
                 to_dir_wcc: vfs::WccData { before: None, after: None },
             });
@@ -66,7 +87,45 @@ impl rename::Rename for MirrorFS {
             }
         };
 
+        let from_dir_meta = match Self::metadata(&from_dir_path) {
+            Ok(meta) => meta,
+            Err(error) => {
+                return Err(rename::Fail {
+                    error,
+                    from_dir_wcc: Self::wcc_data(&from_dir_path, from_before),
+                    to_dir_wcc: Self::wcc_data(&to_dir_path, to_before),
+                });
+            }
+        };
+        if let Err(error) = self.check_sticky(&cred, &from_dir_meta, from_meta.uid()).await {
+            return Err(rename::Fail {
+                error,
+                from_dir_wcc: Self::wcc_data(&from_dir_path, from_before),
+                to_dir_wcc: Self::wcc_data(&to_dir_path, to_before),
+            });
+        }
+
         if let Ok(target_meta) = Self::metadata(&to_path) {
+            let to_dir_meta = match Self::metadata(&to_dir_path) {
+                Ok(meta) => meta,
+                Err(error) => {
+                    return Err(rename::Fail {
+                        error,
+                        from_dir_wcc: vfs::WccData {
+                            before: from_before,
+                            after: from_before_after,
+                        },
+                        to_dir_wcc: vfs::WccData { before: to_before, after: to_before_after },
+                    });
+                }
+            };
+            if let Err(error) = self.check_sticky(&cred, &to_dir_meta, target_meta.uid()).await {
+                return Err(rename::Fail {
+                    error,
+                    from_dir_wcc: vfs::WccData { before: from_before, after: from_before_after },
+                    to_dir_wcc: vfs::WccData { before: to_before, after: to_before_after },
+                });
+            }
             let compatible = from_meta.is_dir() == target_meta.is_dir();
             if !compatible {
                 return Err(rename::Fail {

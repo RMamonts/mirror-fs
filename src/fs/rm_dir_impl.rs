@@ -1,9 +1,16 @@
+use nfs_mamont::auth::Credential;
 use nfs_mamont::vfs::{self, rm_dir};
+
+use std::os::unix::fs::MetadataExt;
 
 use super::MirrorFS;
 
 impl rm_dir::RmDir for MirrorFS {
-    async fn rm_dir(&self, args: rm_dir::Args) -> Result<rm_dir::Success, rm_dir::Fail> {
+    async fn rm_dir(
+        &self,
+        cred: Credential,
+        args: rm_dir::Args,
+    ) -> Result<rm_dir::Success, rm_dir::Fail> {
         if args.object.name.as_str() == "." {
             return Err(rm_dir::Fail {
                 error: vfs::Error::InvalidArgument,
@@ -13,6 +20,12 @@ impl rm_dir::RmDir for MirrorFS {
         if args.object.name.as_str() == ".." {
             return Err(rm_dir::Fail {
                 error: vfs::Error::InvalidArgument,
+                dir_wcc: vfs::WccData { before: None, after: None },
+            });
+        }
+        if let Err(error) = self.require_dir_modify(&cred, &args.object.dir).await {
+            return Err(rm_dir::Fail {
+                error,
                 dir_wcc: vfs::WccData { before: None, after: None },
             });
         }
@@ -46,6 +59,16 @@ impl rm_dir::RmDir for MirrorFS {
                 error: vfs::Error::NotDir,
                 dir_wcc: Self::wcc_data(&dir_path, before),
             });
+        }
+
+        let dir_meta = match Self::metadata(&dir_path) {
+            Ok(meta) => meta,
+            Err(error) => {
+                return Err(rm_dir::Fail { error, dir_wcc: Self::wcc_data(&dir_path, before) })
+            }
+        };
+        if let Err(error) = self.check_sticky(&cred, &dir_meta, child_meta.uid()).await {
+            return Err(rm_dir::Fail { error, dir_wcc: Self::wcc_data(&dir_path, before) });
         }
 
         match std::fs::remove_dir(&child_path) {

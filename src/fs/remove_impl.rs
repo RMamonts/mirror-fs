@@ -1,12 +1,25 @@
 use tokio::fs;
 
+use nfs_mamont::auth::Credential;
 use nfs_mamont::vfs::{self, remove};
+
+use std::os::unix::fs::MetadataExt;
 
 use super::MirrorFS;
 
 impl remove::Remove for MirrorFS {
-    async fn remove(&self, args: remove::Args) -> Result<remove::Success, remove::Fail> {
+    async fn remove(
+        &self,
+        cred: Credential,
+        args: remove::Args,
+    ) -> Result<remove::Success, remove::Fail> {
         if let Err(error) = Self::ensure_name_allowed(&args.object.name) {
+            return Err(remove::Fail {
+                error,
+                dir_wcc: vfs::WccData { before: None, after: None },
+            });
+        }
+        if let Err(error) = self.require_dir_modify(&cred, &args.object.dir).await {
             return Err(remove::Fail {
                 error,
                 dir_wcc: vfs::WccData { before: None, after: None },
@@ -42,6 +55,16 @@ impl remove::Remove for MirrorFS {
                 error: vfs::Error::IsDir,
                 dir_wcc: Self::wcc_data(&dir_path, before),
             });
+        }
+
+        let dir_meta = match Self::metadata(&dir_path) {
+            Ok(meta) => meta,
+            Err(error) => {
+                return Err(remove::Fail { error, dir_wcc: Self::wcc_data(&dir_path, before) });
+            }
+        };
+        if let Err(error) = self.check_sticky(&cred, &dir_meta, child_meta.uid()).await {
+            return Err(remove::Fail { error, dir_wcc: Self::wcc_data(&dir_path, before) });
         }
 
         if let Err(error) = fs::remove_file(&child_path).await {

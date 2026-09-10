@@ -1,10 +1,21 @@
+use nfs_mamont::auth::Credential;
 use nfs_mamont::vfs::{self, symlink};
 
 use super::MirrorFS;
 
 impl symlink::Symlink for MirrorFS {
-    async fn symlink(&self, args: symlink::Args) -> Result<symlink::Success, symlink::Fail> {
+    async fn symlink(
+        &self,
+        cred: Credential,
+        args: symlink::Args,
+    ) -> Result<symlink::Success, symlink::Fail> {
         if let Err(error) = Self::ensure_name_allowed(&args.object.name) {
+            return Err(symlink::Fail {
+                error,
+                dir_wcc: vfs::WccData { before: None, after: None },
+            });
+        }
+        if let Err(error) = self.require_dir_modify(&cred, &args.object.dir).await {
             return Err(symlink::Fail {
                 error,
                 dir_wcc: vfs::WccData { before: None, after: None },
