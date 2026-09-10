@@ -79,7 +79,7 @@ client connections concurrently. Only TCP is supported (no UDP).
 
 ## Roadmap
 
-- NFSv3 (and NFSv4.1 in future) on top of `nfs-mamont`
+- NFSv3 (and NFSv4.* in future) on top of `nfs-mamont`
 
 ## Contributing
 
