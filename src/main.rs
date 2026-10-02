@@ -17,6 +17,7 @@ pub mod config;
 pub mod fs;
 pub mod fs_map;
 
+pub mod auth;
 #[cfg(test)]
 mod tests;
 
@@ -28,7 +29,8 @@ async fn main() -> std::io::Result<()> {
     let args = args::Args::parse();
 
     let config = config::load_config(&args.config_path)?;
-    let fs = Arc::new(fs::MirrorFS::new(config.export_root.clone()));
+    let root_squash = !args.no_root_squash;
+    let fs = Arc::new(fs::MirrorFS::new(config.export_root.clone(), root_squash));
 
     let context = ServerContext::new(
         fs.clone(),

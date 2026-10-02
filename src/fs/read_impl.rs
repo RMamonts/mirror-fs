@@ -2,13 +2,22 @@ use std::io::SeekFrom;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
+use nfs_mamont::auth::Credential;
 use nfs_mamont::vfs::read;
 use nfs_mamont::Buffer;
 
 use super::MirrorFS;
 
 impl<B: Buffer> read::Read<B> for MirrorFS {
-    async fn read(&self, args: read::Args, mut data: B) -> Result<read::Success<B>, read::Fail> {
+    async fn read(
+        &self,
+        cred: Credential,
+        args: read::Args,
+        mut data: B,
+    ) -> Result<read::Success<B>, read::Fail> {
+        if let Err(error) = self.require_read(&cred, &args.file).await {
+            return Err(read::Fail { error, file_attr: None });
+        }
         let path = match self.path_for_handle(&args.file).await {
             Ok(path) => path,
             Err(error) => {

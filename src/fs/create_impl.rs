@@ -1,12 +1,23 @@
 use tokio::fs::OpenOptions;
 
+use nfs_mamont::auth::Credential;
 use nfs_mamont::vfs::{self, create};
 
 use super::{MirrorFS, DEFAULT_SET_ATTR};
 
 impl create::Create for MirrorFS {
-    async fn create(&self, args: create::Args) -> Result<create::Success, create::Fail> {
+    async fn create(
+        &self,
+        cred: Credential,
+        args: create::Args,
+    ) -> Result<create::Success, create::Fail> {
         if let Err(error) = Self::ensure_name_allowed(&args.object.name) {
+            return Err(create::Fail {
+                error,
+                wcc_data: vfs::WccData { before: None, after: None },
+            });
+        }
+        if let Err(error) = self.require_dir_modify(&cred, &args.object.dir).await {
             return Err(create::Fail {
                 error,
                 wcc_data: vfs::WccData { before: None, after: None },

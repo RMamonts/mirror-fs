@@ -13,4 +13,9 @@ pub struct Args {
     /// IP address and TCP port to listen to.
     #[arg(short, long, default_value = "0.0.0.0:2049")]
     pub addr: SocketAddr,
+
+    /// Do not squash remote UID 0, granting it full privileges. Off by default,
+    /// so root squashing is on unless this flag is passed.
+    #[arg(long)]
+    pub no_root_squash: bool,
 }
