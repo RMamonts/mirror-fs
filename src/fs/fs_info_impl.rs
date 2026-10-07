@@ -7,8 +7,8 @@ use super::{MirrorFS, READ_DIR_PREF, READ_WRITE_MAX};
 impl fs_info::FsInfo for MirrorFS {
     async fn fs_info(
         &self,
-        _cred: Credential,
         args: fs_info::Args,
+        _cred: &Credential,
     ) -> Result<fs_info::Success, fs_info::Fail> {
         let path = match self.path_for_handle(&args.root).await {
             Ok(path) => path,

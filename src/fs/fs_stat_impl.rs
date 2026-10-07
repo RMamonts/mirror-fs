@@ -6,8 +6,8 @@ use super::MirrorFS;
 impl fs_stat::FsStat for MirrorFS {
     async fn fs_stat(
         &self,
-        _cred: Credential,
         args: fs_stat::Args,
+        _cred: &Credential,
     ) -> Result<fs_stat::Success, fs_stat::Fail> {
         let path = match self.path_for_handle(&args.root).await {
             Ok(path) => path,

@@ -25,7 +25,7 @@ toml = "0.8.19"
 libc = "0.2"
 
 # Gihub dependencies
-nfs-mamont = { git = "https://github.com/RMamonts/nfs-mamont.git", rev = "88aba37e1029e2b8fe3493753dc72deb92dc9f4b" }
+nfs-mamont = { git = "https://github.com/RMamonts/nfs-mamont.git", rev = "78d826b52637d5c8175aa1837a6bce92e613a930" }
 
 [dev-dependencies]
 tempfile = "3.27.0"

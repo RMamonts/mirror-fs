@@ -343,8 +343,8 @@ dependencies = [
 
 [[package]]
 name = "nfs-mamont"
-version = "0.0.0"
-source = "git+https://github.com/RMamonts/nfs-mamont.git?rev=88aba37e1029e2b8fe3493753dc72deb92dc9f4b#88aba37e1029e2b8fe3493753dc72deb92dc9f4b"
+version = "0.1.0"
+source = "git+https://github.com/RMamonts/nfs-mamont.git?rev=78d826b52637d5c8175aa1837a6bce92e613a930#78d826b52637d5c8175aa1837a6bce92e613a930"
 dependencies = [
  "async-channel",
  "byteorder",

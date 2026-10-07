@@ -6,10 +6,10 @@ use super::MirrorFS;
 impl read_dir::ReadDir for MirrorFS {
     async fn read_dir(
         &self,
-        cred: Credential,
         args: read_dir::Args,
+        cred: &Credential,
     ) -> Result<read_dir::Success, read_dir::Fail> {
-        if let Err(error) = self.require_read(&cred, &args.dir).await {
+        if let Err(error) = self.require_read(cred, &args.dir).await {
             return Err(read_dir::Fail { error, dir_attr: None });
         }
         let dir_path = match self.path_for_handle(&args.dir).await {

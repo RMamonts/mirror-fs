@@ -10,8 +10,8 @@ use super::MirrorFS;
 impl rename::Rename for MirrorFS {
     async fn rename(
         &self,
-        cred: Credential,
         args: rename::Args,
+        cred: &Credential,
     ) -> Result<rename::Success, rename::Fail> {
         if matches!(args.from.name.as_str(), "." | "..")
             || matches!(args.to.name.as_str(), "." | "..")
@@ -22,14 +22,14 @@ impl rename::Rename for MirrorFS {
                 to_dir_wcc: vfs::WccData { before: None, after: None },
             });
         }
-        if let Err(error) = self.require_dir_modify(&cred, &args.from.dir).await {
+        if let Err(error) = self.require_dir_modify(cred, &args.from.dir).await {
             return Err(rename::Fail {
                 error,
                 from_dir_wcc: vfs::WccData { before: None, after: None },
                 to_dir_wcc: vfs::WccData { before: None, after: None },
             });
         }
-        if let Err(error) = self.require_dir_modify(&cred, &args.to.dir).await {
+        if let Err(error) = self.require_dir_modify(cred, &args.to.dir).await {
             return Err(rename::Fail {
                 error,
                 from_dir_wcc: vfs::WccData { before: None, after: None },
@@ -97,7 +97,7 @@ impl rename::Rename for MirrorFS {
                 });
             }
         };
-        if let Err(error) = self.check_sticky(&cred, &from_dir_meta, from_meta.uid()).await {
+        if let Err(error) = self.check_sticky(cred, &from_dir_meta, from_meta.uid()).await {
             return Err(rename::Fail {
                 error,
                 from_dir_wcc: Self::wcc_data(&from_dir_path, from_before),
@@ -119,7 +119,7 @@ impl rename::Rename for MirrorFS {
                     });
                 }
             };
-            if let Err(error) = self.check_sticky(&cred, &to_dir_meta, target_meta.uid()).await {
+            if let Err(error) = self.check_sticky(cred, &to_dir_meta, target_meta.uid()).await {
                 return Err(rename::Fail {
                     error,
                     from_dir_wcc: vfs::WccData { before: from_before, after: from_before_after },

@@ -8,8 +8,8 @@ use super::MirrorFS;
 impl rm_dir::RmDir for MirrorFS {
     async fn rm_dir(
         &self,
-        cred: Credential,
         args: rm_dir::Args,
+        cred: &Credential,
     ) -> Result<rm_dir::Success, rm_dir::Fail> {
         if args.object.name.as_str() == "." {
             return Err(rm_dir::Fail {
@@ -23,7 +23,7 @@ impl rm_dir::RmDir for MirrorFS {
                 dir_wcc: vfs::WccData { before: None, after: None },
             });
         }
-        if let Err(error) = self.require_dir_modify(&cred, &args.object.dir).await {
+        if let Err(error) = self.require_dir_modify(cred, &args.object.dir).await {
             return Err(rm_dir::Fail {
                 error,
                 dir_wcc: vfs::WccData { before: None, after: None },
@@ -67,7 +67,7 @@ impl rm_dir::RmDir for MirrorFS {
                 return Err(rm_dir::Fail { error, dir_wcc: Self::wcc_data(&dir_path, before) })
             }
         };
-        if let Err(error) = self.check_sticky(&cred, &dir_meta, child_meta.uid()).await {
+        if let Err(error) = self.check_sticky(cred, &dir_meta, child_meta.uid()).await {
             return Err(rm_dir::Fail { error, dir_wcc: Self::wcc_data(&dir_path, before) });
         }
 

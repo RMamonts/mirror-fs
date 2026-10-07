@@ -8,8 +8,8 @@ use super::{MirrorFS, DEFAULT_SET_ATTR};
 impl create::Create for MirrorFS {
     async fn create(
         &self,
-        cred: Credential,
         args: create::Args,
+        cred: &Credential,
     ) -> Result<create::Success, create::Fail> {
         if let Err(error) = Self::ensure_name_allowed(&args.object.name) {
             return Err(create::Fail {
@@ -17,7 +17,7 @@ impl create::Create for MirrorFS {
                 wcc_data: vfs::WccData { before: None, after: None },
             });
         }
-        if let Err(error) = self.require_dir_modify(&cred, &args.object.dir).await {
+        if let Err(error) = self.require_dir_modify(cred, &args.object.dir).await {
             return Err(create::Fail {
                 error,
                 wcc_data: vfs::WccData { before: None, after: None },

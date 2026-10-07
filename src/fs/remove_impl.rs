@@ -10,8 +10,8 @@ use super::MirrorFS;
 impl remove::Remove for MirrorFS {
     async fn remove(
         &self,
-        cred: Credential,
         args: remove::Args,
+        cred: &Credential,
     ) -> Result<remove::Success, remove::Fail> {
         if let Err(error) = Self::ensure_name_allowed(&args.object.name) {
             return Err(remove::Fail {
@@ -19,7 +19,7 @@ impl remove::Remove for MirrorFS {
                 dir_wcc: vfs::WccData { before: None, after: None },
             });
         }
-        if let Err(error) = self.require_dir_modify(&cred, &args.object.dir).await {
+        if let Err(error) = self.require_dir_modify(cred, &args.object.dir).await {
             return Err(remove::Fail {
                 error,
                 dir_wcc: vfs::WccData { before: None, after: None },
@@ -63,7 +63,7 @@ impl remove::Remove for MirrorFS {
                 return Err(remove::Fail { error, dir_wcc: Self::wcc_data(&dir_path, before) });
             }
         };
-        if let Err(error) = self.check_sticky(&cred, &dir_meta, child_meta.uid()).await {
+        if let Err(error) = self.check_sticky(cred, &dir_meta, child_meta.uid()).await {
             return Err(remove::Fail { error, dir_wcc: Self::wcc_data(&dir_path, before) });
         }
 
