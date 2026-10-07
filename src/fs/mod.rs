@@ -78,6 +78,15 @@ impl MirrorFS {
         self.fsmap.read().await.root_handle()
     }
 
+    /// Sets the backend id this file system is registered under.
+    ///
+    /// The id is assigned by the server when the file system is attached to a
+    /// [`nfs_mamont::ServerContext`] and must be set before any handle is handed
+    /// out: it is encoded into the first byte of every file handle.
+    pub async fn set_backend_id(&self, id: file::BackendId) {
+        self.fsmap.write().await.set_backend_id(id);
+    }
+
     fn write_verifier(&self) -> write::Verifier {
         write::Verifier(self.generation.to_be_bytes())
     }

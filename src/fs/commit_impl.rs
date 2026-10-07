@@ -7,10 +7,10 @@ use super::*;
 impl commit::Commit for MirrorFS {
     async fn commit(
         &self,
-        cred: Credential,
         args: commit::Args,
+        cred: &Credential,
     ) -> Result<commit::Success, commit::Fail> {
-        if let Err(error) = self.require_write(&cred, &args.file).await {
+        if let Err(error) = self.require_write(cred, &args.file).await {
             return Err(commit::Fail {
                 error,
                 file_wcc: vfs::WccData { before: None, after: None },

@@ -8,8 +8,8 @@ use super::MirrorFS;
 impl lookup::Lookup for MirrorFS {
     async fn lookup(
         &self,
-        cred: Credential,
         args: lookup::Args,
+        cred: &Credential,
     ) -> Result<lookup::Success, lookup::Fail> {
         let parent_path = match self.path_for_handle(&args.parent).await {
             Ok(path) => path,
@@ -27,7 +27,7 @@ impl lookup::Lookup for MirrorFS {
         if let Err(error) = Self::validate_directory(&parent_attr) {
             return Err(lookup::Fail { error, dir_attr: Some(parent_attr) });
         }
-        if let Err(error) = self.require_search(&cred, &args.parent).await {
+        if let Err(error) = self.require_search(cred, &args.parent).await {
             return Err(lookup::Fail { error, dir_attr: Some(parent_attr) });
         }
 

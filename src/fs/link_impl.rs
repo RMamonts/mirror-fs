@@ -6,7 +6,7 @@ use nfs_mamont::vfs::{self, file, link};
 use super::MirrorFS;
 
 impl link::Link for MirrorFS {
-    async fn link(&self, cred: Credential, args: link::Args) -> Result<link::Success, link::Fail> {
+    async fn link(&self, args: link::Args, cred: &Credential) -> Result<link::Success, link::Fail> {
         if let Err(error) = Self::ensure_name_allowed(&args.link.name) {
             return Err(link::Fail {
                 error,
@@ -14,7 +14,7 @@ impl link::Link for MirrorFS {
                 dir_wcc: vfs::WccData { before: None, after: None },
             });
         }
-        if let Err(error) = self.require_dir_modify(&cred, &args.link.dir).await {
+        if let Err(error) = self.require_dir_modify(cred, &args.link.dir).await {
             return Err(link::Fail {
                 error,
                 file_attr: None,

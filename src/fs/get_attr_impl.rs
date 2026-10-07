@@ -6,8 +6,8 @@ use super::MirrorFS;
 impl get_attr::GetAttr for MirrorFS {
     async fn get_attr(
         &self,
-        _cred: Credential,
         args: get_attr::Args,
+        _cred: &Credential,
     ) -> Result<get_attr::Success, get_attr::Fail> {
         let path = match self.path_for_handle(&args.file).await {
             Ok(path) => path,

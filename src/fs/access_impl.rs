@@ -6,8 +6,8 @@ use super::MirrorFS;
 impl access::Access for MirrorFS {
     async fn access(
         &self,
-        cred: Credential,
         args: access::Args,
+        cred: &Credential,
     ) -> Result<access::Success, access::Fail> {
         let path = match self.path_for_handle(&args.file).await {
             Ok(path) => path,
@@ -18,7 +18,7 @@ impl access::Access for MirrorFS {
             Err(error) => return Err(access::Fail { error, object_attr: None }),
         };
         let attr = Self::attr_from_metadata(&meta);
-        let creds = self.credentials(&cred);
+        let creds = self.credentials(cred);
         let granted = self.authorizer.access3(&creds, &attr, args.mask);
         Ok(access::Success { object_attr: Some(attr), access: granted })
     }
