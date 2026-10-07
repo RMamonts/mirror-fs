@@ -58,8 +58,8 @@ impl TestContext {
         expect_ok(
             lookup::Lookup::lookup(
                 &self.fs,
-                cred(),
                 lookup::Args { parent, name: name(child_name) },
+                &cred(),
             )
             .await,
             "lookup should succeed",

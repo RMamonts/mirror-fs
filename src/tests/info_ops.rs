@@ -30,11 +30,11 @@ async fn access_returns_requested_mask() {
     let result = expect_ok(
         access::Access::access(
             &ctx.fs,
-            cred(),
             access::Args {
                 file: handle,
                 mask: access::Mask::from_wire(access::Mask::READ | access::Mask::MODIFY),
             },
+            &cred(),
         )
         .await,
         "access should succeed",
@@ -55,13 +55,13 @@ async fn access_respects_file_permissions() {
     let result = expect_ok(
         access::Access::access(
             &ctx.fs,
-            cred(),
             access::Args {
                 file: handle,
                 mask: access::Mask::from_wire(
                     access::Mask::READ | access::Mask::MODIFY | access::Mask::EXECUTE,
                 ),
             },
+            &cred(),
         )
         .await,
         "access should succeed on read-only file",
@@ -84,8 +84,8 @@ async fn commit_flushes_regular_file_and_rejects_directory() {
     let success = expect_ok(
         commit::Commit::commit(
             &ctx.fs,
-            cred(),
             commit::Args { file: file_handle, offset: 0, count: 0 },
+            &cred(),
         )
         .await,
         "commit should succeed for regular files",
@@ -96,8 +96,8 @@ async fn commit_flushes_regular_file_and_rejects_directory() {
     let fail = expect_err(
         commit::Commit::commit(
             &ctx.fs,
-            cred(),
             commit::Args { file: dir_handle, offset: 0, count: 0 },
+            &cred(),
         )
         .await,
         "commit should fail for directories",
@@ -112,7 +112,7 @@ async fn fs_info_returns_server_limits() {
     let root = ctx.root_handle().await;
 
     let result = expect_ok(
-        fs_info::FsInfo::fs_info(&ctx.fs, cred(), fs_info::Args { root }).await,
+        fs_info::FsInfo::fs_info(&ctx.fs, fs_info::Args { root }, &cred()).await,
         "fs_info should succeed",
     );
     let properties = result.properties.bits();
@@ -132,7 +132,7 @@ async fn fs_stat_returns_zero_counters() {
     let root = ctx.root_handle().await;
 
     let result = expect_ok(
-        fs_stat::FsStat::fs_stat(&ctx.fs, cred(), fs_stat::Args { root }).await,
+        fs_stat::FsStat::fs_stat(&ctx.fs, fs_stat::Args { root }, &cred()).await,
         "fs_stat should succeed",
     );
 
@@ -151,7 +151,7 @@ async fn get_attr_returns_metadata() {
     let handle = ctx.lookup_handle(root, "file.txt").await;
 
     let result = expect_ok(
-        get_attr::GetAttr::get_attr(&ctx.fs, cred(), get_attr::Args { file: handle }).await,
+        get_attr::GetAttr::get_attr(&ctx.fs, get_attr::Args { file: handle }, &cred()).await,
         "get_attr should succeed",
     );
 
@@ -167,7 +167,7 @@ async fn path_conf_reports_limits() {
     let handle = ctx.lookup_handle(root, "file.txt").await;
 
     let result = expect_ok(
-        path_conf::PathConf::path_conf(&ctx.fs, cred(), path_conf::Args { file: handle }).await,
+        path_conf::PathConf::path_conf(&ctx.fs, path_conf::Args { file: handle }, &cred()).await,
         "path_conf should succeed",
     );
 
@@ -192,9 +192,9 @@ async fn read_reads_requested_window_and_rejects_directories() {
     let success = expect_ok(
         read::Read::read(
             &ctx.fs,
-            cred(),
             read::Args { file: file_handle, offset: 2, count: 3 },
             alloc_slice(3).await,
+            &cred(),
         )
         .await,
         "read should succeed",
@@ -206,13 +206,13 @@ async fn read_reads_requested_window_and_rejects_directories() {
     let eof = expect_ok(
         read::Read::read(
             &ctx.fs,
-            cred(),
             read::Args {
                 file: ctx.lookup_handle(ctx.root_handle().await, "file.txt").await,
                 offset: 99,
                 count: 5,
             },
             alloc_slice(5).await,
+            &cred(),
         )
         .await,
         "read past eof should succeed",
@@ -223,9 +223,9 @@ async fn read_reads_requested_window_and_rejects_directories() {
     let fail = expect_err(
         read::Read::read(
             &ctx.fs,
-            cred(),
             read::Args { file: dir_handle, offset: 0, count: 1 },
             alloc_slice(1).await,
+            &cred(),
         )
         .await,
         "read on directory should fail",
@@ -244,13 +244,13 @@ async fn read_dir_returns_sorted_entries_and_rejects_bad_cookie() {
     let success = expect_ok(
         read_dir::ReadDir::read_dir(
             &ctx.fs,
-            cred(),
             read_dir::Args {
                 dir: root.clone(),
                 cookie: read_dir::Cookie::new(0),
                 cookie_verifier: read_dir::CookieVerifier::new([0; NFS3_COOKIEVERFSIZE]),
                 count: 4096,
             },
+            &cred(),
         )
         .await,
         "read_dir should succeed",
@@ -262,13 +262,13 @@ async fn read_dir_returns_sorted_entries_and_rejects_bad_cookie() {
     let fail = expect_err(
         read_dir::ReadDir::read_dir(
             &ctx.fs,
-            cred(),
             read_dir::Args {
                 dir: root,
                 cookie: read_dir::Cookie::new(1),
                 cookie_verifier: read_dir::CookieVerifier::new([1; NFS3_COOKIEVERFSIZE]),
                 count: 4096,
             },
+            &cred(),
         )
         .await,
         "read_dir should reject bad cookies",
@@ -287,7 +287,6 @@ async fn read_dir_plus_returns_handles_and_supports_pagination() {
     let first = expect_ok(
         read_dir_plus::ReadDirPlus::read_dir_plus(
             &ctx.fs,
-            cred(),
             read_dir_plus::Args {
                 dir: root.clone(),
                 cookie: read_dir::Cookie::new(0),
@@ -295,6 +294,7 @@ async fn read_dir_plus_returns_handles_and_supports_pagination() {
                 dir_count: 0,
                 max_count: 130,
             },
+            &cred(),
         )
         .await,
         "read_dir_plus first page should succeed",
@@ -309,7 +309,6 @@ async fn read_dir_plus_returns_handles_and_supports_pagination() {
     let second = expect_ok(
         read_dir_plus::ReadDirPlus::read_dir_plus(
             &ctx.fs,
-            cred(),
             read_dir_plus::Args {
                 dir: root,
                 cookie: first.entries.last().unwrap().cookie,
@@ -317,6 +316,7 @@ async fn read_dir_plus_returns_handles_and_supports_pagination() {
                 dir_count: 0,
                 max_count: 4096,
             },
+            &cred(),
         )
         .await,
         "read_dir_plus second page should succeed",
@@ -336,7 +336,7 @@ async fn read_link_returns_target_and_rejects_regular_files() {
     let file_handle = ctx.lookup_handle(root, "file.txt").await;
 
     let success = expect_ok(
-        read_link::ReadLink::read_link(&ctx.fs, cred(), read_link::Args { file: link_handle })
+        read_link::ReadLink::read_link(&ctx.fs, read_link::Args { file: link_handle }, &cred())
             .await,
         "read_link should succeed",
     );
@@ -344,7 +344,7 @@ async fn read_link_returns_target_and_rejects_regular_files() {
     assert_eq!(success.data.as_path(), Path::new("target.txt"));
 
     let fail = expect_err(
-        read_link::ReadLink::read_link(&ctx.fs, cred(), read_link::Args { file: file_handle })
+        read_link::ReadLink::read_link(&ctx.fs, read_link::Args { file: file_handle }, &cred())
             .await,
         "read_link should fail for regular files",
     );

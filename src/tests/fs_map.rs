@@ -72,7 +72,7 @@ fn decode_handle_zero_returns_bad_file_handle() {
     let tempdir = tempfile::tempdir().unwrap();
     let fs_map = FsMap::new(tempdir.path().to_path_buf());
 
-    let zero_handle = file::Handle([0u8; 8]);
+    let zero_handle = file::Handle([0u8; 9]);
     assert_eq!(fs_map.path_for_handle(&zero_handle).unwrap_err(), vfs::Error::BadFileHandle);
 }
 

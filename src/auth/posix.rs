@@ -37,7 +37,7 @@ impl PosixAuthorizer {
 
 impl Authorizer for PosixAuthorizer {
     fn map_credentials(&self, cred: &Credential) -> Credentials {
-        resolve_credential(cred.clone(), self.root_squash)
+        resolve_credential(cred, self.root_squash)
     }
 
     fn allows(&self, cred: &Credentials, attr: &file::Attr, access: Access) -> bool {
@@ -68,7 +68,7 @@ impl Authorizer for PosixAuthorizer {
 ///
 /// `root_squash` is consulted *before* `privileged` is derived: a squashed
 /// UID 0 collapses to the anonymous identity and gains no privileges.
-fn resolve_credential(cred: Credential, root_squash: bool) -> Credentials {
+fn resolve_credential(cred: &Credential, root_squash: bool) -> Credentials {
     let (uid, gid, groups) = match cred {
         Credential::None => (ANON_UID, ANON_GID, Vec::new()),
         Credential::Sys(params) => (params.uid, params.gid, dedup_groups(&params.gids)),

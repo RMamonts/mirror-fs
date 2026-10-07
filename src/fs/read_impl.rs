@@ -11,11 +11,11 @@ use super::MirrorFS;
 impl<B: Buffer> read::Read<B> for MirrorFS {
     async fn read(
         &self,
-        cred: Credential,
         args: read::Args,
         mut data: B,
+        cred: &Credential,
     ) -> Result<read::Success<B>, read::Fail> {
-        if let Err(error) = self.require_read(&cred, &args.file).await {
+        if let Err(error) = self.require_read(cred, &args.file).await {
             return Err(read::Fail { error, file_attr: None });
         }
         let path = match self.path_for_handle(&args.file).await {

@@ -33,10 +33,12 @@ async fn main() -> std::io::Result<()> {
     let fs = Arc::new(fs::MirrorFS::new(config.export_root.clone(), root_squash));
 
     let context = ServerContext::new(
-        fs.clone(),
         Arc::new(Impl::new(config.allocator.buffer_size, config.allocator.buffer_count)),
         config.vfs_pool_size,
     );
+    let backend_id =
+        context.add_backend(fs.clone()).expect("no free backend slot for the mirror file system");
+    fs.set_backend_id(backend_id).await;
 
     info!(export_root = %config.export_root.display(), bind = %args.addr, "mirrorfs startup");
 

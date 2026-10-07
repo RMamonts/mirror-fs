@@ -6,8 +6,8 @@ use super::MirrorFS;
 impl path_conf::PathConf for MirrorFS {
     async fn path_conf(
         &self,
-        _cred: Credential,
         args: path_conf::Args,
+        _cred: &Credential,
     ) -> Result<path_conf::Success, path_conf::Fail> {
         let path = match self.path_for_handle(&args.file).await {
             Ok(path) => path,
