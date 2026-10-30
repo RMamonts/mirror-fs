@@ -343,9 +343,9 @@ dependencies = [
 
 [[package]]
 name = "nfs-mamont"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa3c024b703a17a6327bc629b8dbb5a306a11fa705b40051882660f4ed666454"
+checksum = "fa3f553e38a4dc79e953fecd75689435c5076c1a63bcc44ad8202312cede8725"
 dependencies = [
  "async-channel",
  "byteorder",
