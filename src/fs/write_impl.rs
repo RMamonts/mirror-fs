@@ -6,6 +6,8 @@ use nfs_mamont::auth::Credential;
 use nfs_mamont::vfs::{self, write};
 use nfs_mamont::Buffer;
 
+use crate::auth;
+
 use super::MirrorFS;
 
 impl<B: Buffer> write::Write<B> for MirrorFS {
@@ -14,7 +16,7 @@ impl<B: Buffer> write::Write<B> for MirrorFS {
         args: write::Args<B>,
         cred: &Credential,
     ) -> Result<write::Success, write::Fail> {
-        if let Err(error) = self.require_write(cred, &args.file).await {
+        if let Err(error) = self.require_data_access(cred, &args.file, auth::Access::Modify).await {
             return Err(write::Fail {
                 error,
                 wcc_data: vfs::WccData { before: None, after: None },
@@ -35,6 +37,15 @@ impl<B: Buffer> write::Write<B> for MirrorFS {
         if let Some(attr) = before_meta.as_ref().map(Self::attr_from_metadata) {
             if let Err(error) = Self::validate_regular(&attr) {
                 return Err(write::Fail { error, wcc_data: Self::wcc_data(&path, before) });
+            }
+        }
+        // Like the kernel does before a write, drop set-user/group-ID for a
+        // caller without CAP_FSETID; the write itself runs as the server user.
+        if let Some(meta) = before_meta.as_ref() {
+            if !self.credentials(cred).privileged {
+                if let Err(error) = Self::remove_privs_for_write(&path, meta) {
+                    return Err(write::Fail { error, wcc_data: Self::wcc_data(&path, before) });
+                }
             }
         }
 

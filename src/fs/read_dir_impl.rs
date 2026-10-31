@@ -30,8 +30,12 @@ impl read_dir::ReadDir for MirrorFS {
             return Err(read_dir::Fail { error: vfs::Error::BadCookie, dir_attr: Some(dir_attr) });
         }
 
-        let entries = match self.list_directory_entries(&dir_path) {
-            Ok(entries) => entries,
+        let mut entries = match self.dot_entries(&dir_path).await {
+            Ok(dots) => dots,
+            Err(error) => return Err(read_dir::Fail { error, dir_attr: Some(dir_attr) }),
+        };
+        match self.list_directory_entries(&dir_path) {
+            Ok(real) => entries.extend(real),
             Err(error) => return Err(read_dir::Fail { error, dir_attr: Some(dir_attr) }),
         };
 
