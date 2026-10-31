@@ -1,0 +1,22 @@
+FSTYP         -- nfs
+PLATFORM      -- Linux/x86_64 nfs-client-vm 7.0.0-42-generic #42~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Mon Oct 19 14:43:01 UTC 2
+MKFS_OPTIONS  -- 10.10.14.1:/scratch
+MOUNT_OPTIONS -- -o vers=3,proto=tcp,port=2054,mountport=2054,mountproto=tcp,nolock 10.10.14.1:/scratch /mnt/xscratch
+
+generic/003        [not run] atime related mount options have no effect on nfs
+generic/007         742s
+generic/012        [not run] xfs_io fpunch  failed (old kernel/wrong fs?)
+generic/016        [not run] xfs_io fpunch  failed (old kernel/wrong fs?)
+generic/022        [not run] xfs_io fpunch  failed (old kernel/wrong fs?)
+generic/026        [not run] ACLs not supported by this filesystem type: nfs
+generic/031        [not run] xfs_io fcollapse  failed (old kernel/wrong fs?)
+generic/035         33s
+generic/041        [not run] require 10.10.14.1:/scratch to be valid block disk
+generic/053        [not run] ACLs not supported by this filesystem type: nfs
+generic/059        [not run] require 10.10.14.1:/scratch to be valid block disk
+generic/063        [not run] xfs_io fpunch  failed (old kernel/wrong fs?)
+generic/067        [not run] require 10.10.14.1:/scratch to be valid block disk
+generic/073        [not run] require 10.10.14.1:/scratch to be valid block disk
+generic/079        [not run] file system doesn't support chattr +ia
+generic/084         56s
+generic/090        

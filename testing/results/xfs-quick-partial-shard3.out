@@ -1,0 +1,21 @@
+FSTYP         -- nfs
+PLATFORM      -- Linux/x86_64 nfs-client-vm 7.0.0-42-generic #42~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Mon Oct 19 14:43:01 UTC 2
+MKFS_OPTIONS  -- 10.10.13.1:/scratch
+MOUNT_OPTIONS -- -o vers=3,proto=tcp,port=2053,mountport=2053,mountproto=tcp,nolock 10.10.13.1:/scratch /mnt/xscratch
+
+generic/002  73s ...  65s
+generic/006         384s
+generic/011         342s
+generic/015        [not run] Filesystem nfs not supported in _scratch_mkfs_sized
+generic/021        [not run] xfs_io fpunch  failed (old kernel/wrong fs?)
+generic/025        [not run] kernel doesn't support renameat2 syscall
+generic/030         77s
+generic/034        [not run] require 10.10.13.1:/scratch to be valid block disk
+generic/040        [not run] require 10.10.13.1:/scratch to be valid block disk
+generic/052        [not run] nfs does not support shutdown
+generic/058        [not run] xfs_io fpunch  failed (old kernel/wrong fs?)
+generic/062        [not run] attr namespace user not supported by this filesystem type: nfs
+generic/066        [not run] require 10.10.13.1:/scratch to be valid block disk
+generic/071        [not run] xfs_io falloc -k failed (old kernel/wrong fs?)
+generic/078        [not run] kernel doesn't support renameat2 syscall
+generic/082        

@@ -1,0 +1,177 @@
+=== 1. dot entries / df
+--- ls -la dd1
+total 0
+rc=0
+--- df -h /mnt/t
+Filesystem        Size  Used Avail Use% Mounted on
+10.10.11.1:/test     0     0     0    - /mnt/t
+rc=0
+--- stat -f /mnt/t
+  File: "/mnt/t"
+    ID: 0        Namelen: 255     Type: nfs
+Block size: 65536      Fundamental block size: 65536
+Blocks: Total: 0          Free: 0          Available: 0
+Inodes: Total: 0          Free: 0
+rc=0
+=== 2. timestamps of new objects
+now=1793445727
+tdir mtime=1793445727 ctime=1793445727 atime=1793445727
+tlink mtime=1793445727 ctime=1793445727 atime=1793445727
+tfile mtime=1793445727 ctime=1793445727 atime=1793445727
+=== 3. owner writes to file created 0444 (as root and as nobody)
+--- python3 -c import os; fd=os.open('ro_root', os.O_CREAT|os.O_WRONLY, 0o444); print(os.write(fd, b'hello')); os.close(fd)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import os; fd=os.open('ro_root', os.O_CREAT|os.O_WRONLY, 0o444); print(os.write(fd, b'hello')); os.close(fd)
+                                                                                                    ~~~~~~~~^^^^
+PermissionError: [Errno 13] Permission denied
+5
+rc=1
+--- setpriv --reuid=65534 --regid=65534 --clear-groups python3 -c import os; fd=os.open('ro_nobody', os.O_CREAT|os.O_WRONLY, 0o444); print(os.write(fd, b'hello')); os.close(fd)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import os; fd=os.open('ro_nobody', os.O_CREAT|os.O_WRONLY, 0o444); print(os.write(fd, b'hello')); os.close(fd)
+                                                                                                      ~~~~~~~~^^^^
+PermissionError: [Errno 13] Permission denied
+5
+rc=1
+--- setpriv --reuid=65534 --regid=65534 --clear-groups sh -c echo data > nb_file; ls -ln nb_file
+-rw-r--r-- 1 0 0 0 Oct 31 11:22 nb_file
+rc=0
+--- owner (nobody) chmod of own file:
+--- setpriv --reuid=65534 --regid=65534 --clear-groups chmod 0444 nb_file
+chmod: changing permissions of 'nb_file': Permission denied
+rc=1
+--- setpriv --reuid=65534 --regid=65534 --clear-groups chmod 0644 nb_file
+chmod: changing permissions of 'nb_file': Permission denied
+rc=1
+--- owner (nobody) writes own 0644 file after creation
+--- setpriv --reuid=65534 --regid=65534 --clear-groups sh -c echo more >> nb_file
+sh: 1: cannot create nb_file: Permission denied
+rc=2
+--- host view:
+=== 4. root: write to 0444 file, read 0000 file, create in 0555 dir
+--- sh -c echo y >> r1
+sh: 1: cannot create r1: Permission denied
+rc=2
+--- cat r2
+cat: r2: Permission denied
+rc=1
+--- touch d555/newfile
+rc=0
+=== 5. chown
+--- chown 65534:65534 c1
+chown: changing ownership of 'c1': Invalid argument
+rc=1
+--- chown :65534 c1
+chown: changing group of 'c1': Invalid argument
+rc=1
+-rw-r--r-- 1 0 0 0 Oct 31 11:22 c1
+=== 6. mkfifo / mknod / socket
+--- mkfifo ff1
+mkfifo: cannot create fifo 'ff1': Unknown error 524
+rc=1
+--- mknod cdev c 1 3
+mknod: cdev: Unknown error 524
+rc=1
+--- python3 -c import socket; s=socket.socket(socket.AF_UNIX); s.bind('sock1')
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import socket; s=socket.socket(socket.AF_UNIX); s.bind('sock1')
+                                                    ~~~~~~^^^^^^^^^
+OSError: [Errno 524] Unknown error 524
+rc=1
+=== 7. utimes
+--- touch -d 1960-01-01 u1
+rc=0
+u1 mtime=0
+--- touch -d 2200-01-01 u1
+rc=0
+u1 mtime=4294967295
+--- touch -d 2020-02-02 02:02:02.123456789 u1
+rc=0
+u1 mtime=2020-02-02 02:02:02.123456789 +0000
+=== 8. non-owner with write permission can chmod/utimes another user's file?
+--- setpriv --reuid=65534 --regid=65534 --clear-groups chmod 4777 other
+rc=0
+-rwsrwxrwx 1 0 0 0 Oct 31 11:22 other
+--- setpriv --reuid=65534 --regid=65534 --clear-groups touch -d 2001-01-01 other
+rc=0
+other mtime=978307200
+=== 9. hard link survives unlink of original
+--- cat h_link
+hl
+rc=0
+=== 10. unlink of open file (silly rename)
+1
+=== 11. sparse >4GiB file
+--- truncate -s 5G big
+rc=0
+--- sh -c echo tail | dd of=big bs=1 seek=5368709000 conv=notrunc status=none
+rc=0
+--- stat -c %s %b big
+5368709120 8
+rc=0
+--- dd if=big bs=1 skip=5368709000 count=4 status=none
+tailrc=0
+
+=== 12. large directory listing
+client ls count: 3000   ls -l count: 3000
+=== 13. rm -rf large directory
+--- rm -rf bigdir
+rc=0
+ls: cannot access 'bigdir': No such file or directory
+=== 14. data integrity after cache drop
+e2763e7217dec404b2e698df49c0f8ac  /tmp/rnd
+e2763e7217dec404b2e698df49c0f8ac  rnd
+=== 15. O_EXCL create
+--- python3 -c import os; os.open('ex1', os.O_CREAT|os.O_EXCL|os.O_WRONLY, 0o600); os.open('ex1', os.O_CREAT|os.O_EXCL|os.O_WRONLY, 0o600)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import os; os.open('ex1', os.O_CREAT|os.O_EXCL|os.O_WRONLY, 0o600); os.open('ex1', os.O_CREAT|os.O_EXCL|os.O_WRONLY, 0o600)
+                                                                        ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileExistsError: [Errno 17] File exists: 'ex1'
+rc=1
+-rw------- 1 0 0 0 Oct 31 11:22 ex1
+=== 16. rename onto existing / dir rename
+--- mv -f ra rb
+rc=0
+a
+--- mv -T rd1 rd2
+rc=0
+--- mv rd3 rd4
+rc=0
+--- cat rd4/inner
+rc=0
+=== 17. names: long name, special chars
+--- touch nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+rc=0
+--- touch nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+touch: cannot touch 'nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn': File name too long
+rc=1
+--- touch sp ace utf8_тест_✓ nl
+name
+rc=0
+c1
+d555
+dd1
+ex1
+h_link
+nb_file
+nl\nname
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+other
+r1
+r2
+rb
+rd2
+rd4
+rnd
+ro_nobody
+ro_root
+sp\ ace
+tdir
+tfile
+tlink
+u1
+utf8_\321\202\320\265\321\201\321\202_\342\234\223

@@ -1,0 +1,27 @@
+###### P1: file created by UNPRIVILEGED client (uid 65534) -> owned by?
+-rw-r--r-- 1 0 0 0 Oct 31  2026 /mnt/p/byNobody
+###### P2: root (no_root_squash) write to a 0444 file it owns
+--- dd if=/dev/zero of=ro bs=1 count=1 conv=notrunc
+dd: failed to open 'ro': Permission denied
+   rc=1
+###### P3: root read a 0000 file
+--- cat z
+cat: z: Permission denied
+   rc=1
+###### P4: owner chmod own 0000 file (root here, privileged)
+--- chmod 0644 m
+chmod: changing permissions of 'm': Permission denied
+   rc=1
+m mode=0
+###### P5: client uid 65534 creates file in 0777 dir, then chmods own file
+chmod: changing permissions of '/mnt/p/own': Permission denied
+-rw-r--r-- 1 0 0 0 Oct 31  2026 /mnt/p/own
+###### P6: SETATTR size (truncate) on 0444 file by owner-root
+--- truncate -s 2 tr
+truncate: cannot open 'tr' for writing: Permission denied
+   rc=1
+tr size=7
+###### P7: ACCESS(X_OK) of dir vs file for nobody
+--- setpriv --reuid=65534 --regid=65534 --clear-groups test -x /mnt/p/pub
+   rc=0
+dir_x=yes

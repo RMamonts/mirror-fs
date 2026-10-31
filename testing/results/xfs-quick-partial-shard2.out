@@ -1,0 +1,9 @@
+FSTYP         -- nfs
+PLATFORM      -- Linux/x86_64 nfs-client-vm 7.0.0-42-generic #42~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Mon Oct 19 14:43:01 UTC 2
+MKFS_OPTIONS  -- 10.10.12.1:/scratch
+MOUNT_OPTIONS -- -o vers=3,proto=tcp,port=2052,mountport=2052,mountproto=tcp,nolock 10.10.12.1:/scratch /mnt/xscratch
+
+generic/001         941s
+generic/005         61s
+generic/009        [not run] xfs_io fzero  failed (old kernel/wrong fs?)
+generic/014        

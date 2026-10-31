@@ -1,0 +1,9 @@
+vfs_pool_size = 10
+
+[allocator]
+buffer_size = 1048576
+buffer_count = 256
+
+[exports]
+root = "/srv/probe"
+paths = ["a"]
