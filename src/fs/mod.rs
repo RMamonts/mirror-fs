@@ -1,5 +1,6 @@
 use std::fs::Metadata;
 use std::io::ErrorKind;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -158,13 +159,27 @@ impl MirrorFS {
         self.require_access(cred, handle, auth::Access::Search).await
     }
 
-    /// Requires [`auth::Access::Modify`]: modify a file's contents or attributes.
-    async fn require_write(
+    /// Authorizes file *data* I/O (READ, WRITE, COMMIT) with `access`.
+    ///
+    /// The owner is always allowed, like knfsd's `NFSD_MAY_OWNER_OVERRIDE`:
+    /// NFS is stateless and the client checks access (via `ACCESS`) when a file
+    /// is opened, so an owner must keep I/O access to a file it has since made
+    /// read-only — e.g. `open(O_CREAT | O_WRONLY, 0444)` followed by `write()`.
+    pub(crate) async fn require_data_access(
         &self,
         cred: &Credential,
         handle: &file::Handle,
+        access: auth::Access,
     ) -> Result<(), vfs::Error> {
-        self.require_access(cred, handle, auth::Access::Modify).await
+        let path = self.path_for_handle(handle).await?;
+        let meta = Self::metadata(&path)?;
+        let attr = Self::attr_from_metadata(&meta);
+        let caller = self.credentials(cred);
+        if caller.uid == attr.uid || self.authorizer.allows(&caller, &attr, access) {
+            Ok(())
+        } else {
+            Err(vfs::Error::Access)
+        }
     }
 
     /// Requires [`auth::Access::ModifyDir`]: create, remove or rename an entry.
@@ -216,6 +231,18 @@ impl MirrorFS {
             Some(libc::ENOTEMPTY) => return vfs::Error::NotEmpty,
             Some(libc::EISDIR) => return vfs::Error::IsDir,
             Some(libc::ENOTDIR) => return vfs::Error::NotDir,
+            // `std::io::ErrorKind` collapses EPERM and EACCES into
+            // `PermissionDenied`; NFS distinguishes NFS3ERR_PERM (not owner)
+            // from NFS3ERR_ACCES (permission bits), so recover the distinction.
+            Some(libc::EPERM) => return vfs::Error::Permission,
+            Some(libc::EACCES) => return vfs::Error::Access,
+            Some(libc::EOPNOTSUPP) => return vfs::Error::NotSupported,
+            Some(libc::ENAMETOOLONG) => return vfs::Error::NameTooLong,
+            Some(libc::ELOOP) => return vfs::Error::IO,
+            Some(libc::EXDEV) => return vfs::Error::XDev,
+            Some(libc::ENOSPC) => return vfs::Error::NoSpace,
+            Some(libc::EDQUOT) => return vfs::Error::QuotaExceeded,
+            Some(libc::EFBIG) => return vfs::Error::FileTooLarge,
             _ => {}
         }
 
@@ -234,10 +261,6 @@ impl MirrorFS {
             seconds: seconds.max(0).min(u32::MAX as i64) as u32,
             nanos: nanos.max(0).min(u32::MAX as i64) as u32,
         }
-    }
-
-    fn system_time_from_file_time(time: file::Time) -> SystemTime {
-        UNIX_EPOCH + Duration::new(u64::from(time.seconds), time.nanos)
     }
 
     fn same_time(left: file::Time, right: file::Time) -> bool {
@@ -272,7 +295,12 @@ impl MirrorFS {
             gid: meta.gid(),
             size: meta.size(),
             used: meta.blocks().saturating_mul(512),
-            device: file::Device { major: 0, minor: 0 },
+            device: if matches!(file_type, file::Type::BlockDevice | file::Type::CharacterDevice) {
+                let rdev = meta.rdev();
+                file::Device { major: libc::major(rdev), minor: libc::minor(rdev) }
+            } else {
+                file::Device { major: 0, minor: 0 }
+            },
             fs_id: meta.dev(),
             file_id: meta.ino(),
             atime: Self::time_from_unix(meta.atime(), meta.atime_nsec()),
@@ -341,14 +369,72 @@ impl MirrorFS {
         stored_sec == expected_sec && stored_nsec == expected_nsec
     }
 
-    fn apply_set_attr(path: &Path, new_attr: &set_attr::NewAttr) -> Result<(), vfs::Error> {
-        if new_attr.uid.is_some() || new_attr.gid.is_some() {
-            return Err(vfs::Error::InvalidArgument);
-        }
+    /// Changes ownership of `path` without following a final symlink
+    /// (NFS operations name the object itself, not its target).
+    fn lchown(path: &Path, uid: Option<u32>, gid: Option<u32>) -> Result<(), vfs::Error> {
+        std::os::unix::fs::lchown(path, uid, gid).map_err(|error| Self::io_error_to_vfs(&error))
+    }
 
-        if let Some(mode) = new_attr.mode {
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
-                .map_err(|error| Self::io_error_to_vfs(&error))?;
+    /// Owner and group for an object created by `caller` in a directory with
+    /// metadata `parent`: the caller's uid, and the caller's gid unless the
+    /// parent is set-group-ID, in which case the group is inherited from it
+    /// (Linux `inode_init_owner()`).
+    pub(crate) fn new_object_owner(caller: &auth::Credentials, parent: &Metadata) -> (u32, u32) {
+        let gid = if parent.mode() & 0o2000 != 0 { parent.gid() } else { caller.gid };
+        (caller.uid, gid)
+    }
+
+    /// Sets ownership of an object freshly created in `parent` so that it
+    /// reflects the NFS client's credentials rather than the server process
+    /// identity (see [`Self::new_object_owner`]).
+    ///
+    /// When mirror-fs itself runs unprivileged it cannot give files away; the
+    /// object then stays owned by the server user instead of failing the create.
+    fn chown_to_caller(
+        path: &Path,
+        parent: &Path,
+        caller: &auth::Credentials,
+    ) -> Result<(), vfs::Error> {
+        let parent_meta = Self::metadata(parent)?;
+        let (uid, gid) = Self::new_object_owner(caller, &parent_meta);
+        match Self::lchown(path, Some(uid), Some(gid)) {
+            Err(vfs::Error::Permission) if !Self::server_is_privileged() => Ok(()),
+            result => result,
+        }
+    }
+
+    /// Whether the server process can act as the superuser on the backing
+    /// file system (needed to give objects away or create device nodes).
+    fn server_is_privileged() -> bool {
+        // SAFETY: geteuid(2) has no preconditions and cannot fail.
+        unsafe { libc::geteuid() == 0 }
+    }
+
+    /// Linux `file_remove_privs()`: data written by a caller without
+    /// `CAP_FSETID` strips set-user-ID, and set-group-ID when the file is
+    /// group-executable. mirror-fs performs the write as the server user, so
+    /// the kernel would not do this on the caller's behalf.
+    fn remove_privs_for_write(path: &Path, meta: &Metadata) -> Result<(), vfs::Error> {
+        if !meta.file_type().is_file() {
+            return Ok(());
+        }
+        let mode = meta.mode() & 0o7777;
+        let mut kill = mode & 0o4000;
+        if mode & 0o2000 != 0 && mode & 0o010 != 0 {
+            kill |= 0o2000;
+        }
+        if kill == 0 {
+            return Ok(());
+        }
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode & !kill))
+            .map_err(|error| Self::io_error_to_vfs(&error))
+    }
+
+    fn apply_set_attr(path: &Path, new_attr: &set_attr::NewAttr) -> Result<(), vfs::Error> {
+        // Ownership first: chown clears set-user/group-ID bits, so any explicit
+        // mode in the same request must be applied afterwards to survive.
+        if new_attr.uid.is_some() || new_attr.gid.is_some() {
+            Self::lchown(path, new_attr.uid, new_attr.gid)?;
         }
 
         if let Some(size) = new_attr.size {
@@ -359,34 +445,55 @@ impl MirrorFS {
             file.set_len(size).map_err(|error| Self::io_error_to_vfs(&error))?;
         }
 
+        if let Some(mode) = new_attr.mode {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+                .map_err(|error| Self::io_error_to_vfs(&error))?;
+        }
+
         let needs_atime = !matches!(new_attr.atime, set_attr::SetTime::DontChange);
         let needs_mtime = !matches!(new_attr.mtime, set_attr::SetTime::DontChange);
         if needs_atime || needs_mtime {
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .open(path)
-                .map_err(|error| Self::io_error_to_vfs(&error))?;
-            let meta = file.metadata().map_err(|error| Self::io_error_to_vfs(&error))?;
-            let current_attr = Self::attr_from_metadata(&meta);
-            let atime = match new_attr.atime {
-                set_attr::SetTime::DontChange => {
-                    Self::system_time_from_file_time(current_attr.atime)
-                }
-                set_attr::SetTime::ToServer => SystemTime::now(),
-                set_attr::SetTime::ToClient(time) => Self::system_time_from_file_time(time),
+            // Set times with `utimensat(2)` on the path rather than opening the
+            // object: opening a FIFO or device node would block (e.g. O_RDONLY
+            // on a FIFO waits for a writer), and we must not follow a final
+            // symlink (NFS names the link itself, matching `lstat`).
+            let times = [
+                Self::set_time_to_timespec(new_attr.atime),
+                Self::set_time_to_timespec(new_attr.mtime),
+            ];
+            let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
+                .map_err(|_| vfs::Error::InvalidArgument)?;
+            // SAFETY: `c_path` is a valid NUL-terminated path and `times` is a
+            // two-element array as required by utimensat(2).
+            let rc = unsafe {
+                libc::utimensat(
+                    libc::AT_FDCWD,
+                    c_path.as_ptr(),
+                    times.as_ptr(),
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
             };
-            let mtime = match new_attr.mtime {
-                set_attr::SetTime::DontChange => {
-                    Self::system_time_from_file_time(current_attr.mtime)
-                }
-                set_attr::SetTime::ToServer => SystemTime::now(),
-                set_attr::SetTime::ToClient(time) => Self::system_time_from_file_time(time),
-            };
-            let times = std::fs::FileTimes::new().set_accessed(atime).set_modified(mtime);
-            file.set_times(times).map_err(|error| Self::io_error_to_vfs(&error))?;
+            if rc != 0 {
+                return Err(Self::io_error_to_vfs(&std::io::Error::last_os_error()));
+            }
         }
 
         Ok(())
+    }
+
+    /// Maps a [`set_attr::SetTime`] to a `utimensat(2)` `timespec`, using the
+    /// `UTIME_OMIT`/`UTIME_NOW` sentinels for "leave unchanged"/"set to now".
+    fn set_time_to_timespec(when: set_attr::SetTime) -> libc::timespec {
+        match when {
+            set_attr::SetTime::DontChange => {
+                libc::timespec { tv_sec: 0, tv_nsec: libc::UTIME_OMIT }
+            }
+            set_attr::SetTime::ToServer => libc::timespec { tv_sec: 0, tv_nsec: libc::UTIME_NOW },
+            set_attr::SetTime::ToClient(time) => libc::timespec {
+                tv_sec: time.seconds as libc::time_t,
+                tv_nsec: time.nanos as libc::c_long,
+            },
+        }
     }
 
     fn list_directory_entries(
@@ -408,6 +515,26 @@ impl MirrorFS {
 
         entries.sort_by(|left, right| left.0.as_str().cmp(right.0.as_str()));
         Ok(entries)
+    }
+
+    /// The synthetic `.` and `..` entries that every POSIX directory listing
+    /// must contain (RFC 1813 requires them in READDIR/READDIRPLUS). `..` of an
+    /// export root resolves to the root itself, mirroring `LOOKUP ..`.
+    async fn dot_entries(
+        &self,
+        dir_path: &Path,
+    ) -> Result<Vec<(file::Name, PathBuf, Metadata)>, vfs::Error> {
+        let export_root = self.exported_root_path().await?;
+        let parent = if dir_path == export_root {
+            dir_path.to_path_buf()
+        } else {
+            dir_path.parent().map(PathBuf::from).unwrap_or_else(|| dir_path.to_path_buf())
+        };
+        let dot_meta = Self::metadata(dir_path)?;
+        let dotdot_meta = Self::metadata(&parent)?;
+        let dot = file::Name::new(".".to_string()).map_err(|_| vfs::Error::InvalidArgument)?;
+        let dotdot = file::Name::new("..".to_string()).map_err(|_| vfs::Error::InvalidArgument)?;
+        Ok(vec![(dot, dir_path.to_path_buf(), dot_meta), (dotdot, parent, dotdot_meta)])
     }
 
     async fn child_path(

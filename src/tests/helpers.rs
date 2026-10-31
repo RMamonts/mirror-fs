@@ -83,6 +83,33 @@ pub fn cred() -> Credential {
     })
 }
 
+/// An `AUTH_SYS` credential for an arbitrary caller.
+pub fn cred_for(uid: u32, gid: u32, groups: &[u32]) -> Credential {
+    Credential::Sys(AuthSysParams {
+        stamp: 0,
+        machine_name: "mirror-fs-tests".to_owned(),
+        uid,
+        gid,
+        gids: groups.to_vec(),
+    })
+}
+
+/// Returns an unprivileged owner `(uid, gid)` of `path`.
+///
+/// Tests normally run unprivileged (as in CI) and then the test process
+/// already owns the file. Under root the file is handed to a fixed
+/// non-root id so permission checks are exercised the same way.
+pub fn unprivileged_owner(path: &Path) -> (u32, u32) {
+    use std::os::unix::fs::MetadataExt;
+
+    // SAFETY: geteuid(2) has no preconditions and cannot fail.
+    if unsafe { libc::geteuid() } == 0 {
+        std::os::unix::fs::lchown(path, Some(4242), Some(4242)).unwrap();
+    }
+    let meta = stdfs::symlink_metadata(path).unwrap();
+    (meta.uid(), meta.gid())
+}
+
 pub fn file_path(value: &str) -> file::Path {
     file::Path::new(value.to_owned()).unwrap()
 }

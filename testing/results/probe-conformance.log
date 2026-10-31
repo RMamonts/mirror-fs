@@ -1,0 +1,93 @@
+###### B1: FSSTAT (df) reports zero size
+--- df -P -B1 /mnt/p
+Filesystem     1-blocks  Used Available Capacity Mounted on
+10.10.15.1:/a         0     0         0        - /mnt/p
+   rc=0
+###### B2: READDIR omits . and .. (POSIX requires them)
+--- ls -a1 /mnt/p/d
+   rc=0
+--- python3 -c import os; print(sorted(os.listdir('/mnt/p/d')) or 'EMPTY'); print('dot entries:', [e for e in os.scandir('/mnt/p/d')])
+EMPTY
+dot entries: []
+   rc=0
+###### B3: chown to SAME owner (no-op) should succeed but returns EINVAL
+--- chown 0:0 f_chown
+chown: changing ownership of 'f_chown': Invalid argument
+   rc=1
+--- chown 65534:65534 f_chown
+chown: changing ownership of 'f_chown': Invalid argument
+   rc=1
+--- chown 65534 f_chown
+chown: changing ownership of 'f_chown': Invalid argument
+   rc=1
+-rw-r--r-- 1 0 0 0 Oct 31 12:13 f_chown
+###### B4: mknod / mkfifo / bind socket unsupported
+--- mkfifo fifo1
+mkfifo: cannot create fifo 'fifo1': Unknown error 524
+   rc=1
+--- mknod blk1 b 1 2
+mknod: blk1: Unknown error 524
+   rc=1
+--- mknod chr1 c 1 2
+mknod: chr1: Unknown error 524
+   rc=1
+--- python3 -c import socket;s=socket.socket(socket.AF_UNIX);s.bind('/mnt/p/sock1')
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import socket;s=socket.socket(socket.AF_UNIX);s.bind('/mnt/p/sock1')
+                                                  ~~~~~~^^^^^^^^^^^^^^^^
+OSError: [Errno 524] Unknown error 524
+   rc=1
+###### B5: SETATTR size on a directory -> should be EISDIR, mirror opens O_WRONLY
+--- python3 -c import os; os.truncate('/mnt/p/d', 0)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import os; os.truncate('/mnt/p/d', 0)
+               ~~~~~~~~~~~^^^^^^^^^^^^^^^
+IsADirectoryError: [Errno 21] Is a directory: '/mnt/p/d'
+   rc=1
+###### B6: owner can always chmod? non-privileged create then chmod
+--- sh -c echo hi > g; chmod 0000 g; chmod 0644 g; echo ok
+chmod: changing permissions of 'g': Permission denied
+ok
+   rc=0
+###### B7: timestamps of freshly created file vs server clock
+server_now=1793448841
+ts atime=1793448843 mtime=1793448843 ctime=1793448843
+###### B8: utimes with UTIME_NOW/OMIT and >u32 and negative
+--- touch -d @-5 ts
+   rc=0
+neg mtime=0
+--- python3 -c import os; os.utime('/mnt/p/ts',(5000000000,5000000000)); print(os.stat('/mnt/p/ts').st_mtime)
+4294967295.0
+   rc=0
+###### B9: SETATTR mode bits above 0777 (suid/sgid/sticky) preserved?
+--- chmod 7755 sb
+   rc=0
+sb mode=7755
+###### B10: hardlink count + nlink after link/unlink
+nlink=2
+nlink_after=1
+###### B11: rename dir onto empty dir / nonempty dir
+--- mv -T s1 t1
+   rc=0
+--- mv -T s2 t2
+mv: cannot overwrite 't2': File exists
+   rc=1
+###### B12: large READDIR pagination correctness (cookie)
+created=500 listed=500 uniq=500
+###### B13: WRITE then READ integrity w/ O_APPEND and holes
+--- python3 -c 
+import os
+fd=os.open('/mnt/p/sp',os.O_CREAT|os.O_RDWR,0o644)
+os.pwrite(fd,b'END',1048576); os.fsync(fd)
+st=os.fstat(fd); print('size',st.st_size,'blocks',st.st_blocks)
+os.lseek(fd,0,os.SEEK_SET); print('hole0',os.read(fd,4))
+os.close(fd)
+size 1048579 blocks 8
+hole0 b'\x00\x00\x00\x00'
+   rc=0
+###### B14: ACCESS semantics - X on file without x bit (nobody)
+--- setpriv --reuid=65534 --regid=65534 --clear-groups test -x scr
+   rc=1
+x=yes

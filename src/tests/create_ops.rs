@@ -188,29 +188,49 @@ async fn mk_dir_creates_directory_and_applies_mode() {
 }
 
 #[tokio::test]
-async fn mk_node_handles_all_types_as_unsupported() {
+async fn mk_node_creates_special_files() {
+    use std::os::unix::fs::FileTypeExt;
+
     let ctx = TestContext::new();
     let root = ctx.root_handle().await;
 
-    for (what, name) in [
-        (mk_node::What::Char(default_new_attr(), file::Device { major: 0, minor: 0 }), "node-char"),
+    // FIFO and socket require no privilege; char/block devices need CAP_MKNOD,
+    // so without it they must fail cleanly with EPERM instead of succeeding.
+    // SAFETY: geteuid(2) has no preconditions and cannot fail.
+    let privileged = unsafe { libc::geteuid() } == 0;
+    let cases: [(mk_node::What, &str); 4] = [
+        (mk_node::What::Fifo(default_new_attr()), "node-fifo"),
+        (mk_node::What::Socket(default_new_attr()), "node-socket"),
+        (mk_node::What::Char(default_new_attr(), file::Device { major: 1, minor: 3 }), "node-char"),
         (
-            mk_node::What::Block(default_new_attr(), file::Device { major: 0, minor: 0 }),
+            mk_node::What::Block(default_new_attr(), file::Device { major: 7, minor: 0 }),
             "node-block",
         ),
-        (mk_node::What::Socket(default_new_attr()), "node-socket"),
-        (mk_node::What::Fifo(default_new_attr()), "node-fifo"),
-    ] {
-        let err = expect_err(
-            mk_node::MkNode::mk_node(
-                &ctx.fs,
-                mk_node::Args { object: dir_op(root.clone(), name), what },
-                &cred(),
-            )
-            .await,
-            &format!("mk_node {name} should be unsupported"),
-        );
-        assert_eq!(err.error, vfs::Error::NotSupported);
+    ];
+    for (what, name) in cases {
+        let is_device = matches!(name, "node-char" | "node-block");
+        let result = mk_node::MkNode::mk_node(
+            &ctx.fs,
+            mk_node::Args { object: dir_op(root.clone(), name), what },
+            &cred(),
+        )
+        .await;
+        if is_device && !privileged {
+            let err = expect_err(result, &format!("mk_node {name} needs CAP_MKNOD"));
+            assert_eq!(err.error, vfs::Error::Permission);
+            continue;
+        }
+        let ok = expect_ok(result, &format!("mk_node {name} should succeed"));
+        assert!(ok.file.is_some() && ok.attr.is_some(), "{name} should return handle and attr");
+        let ft = stdfs::symlink_metadata(ctx.root_path().join(name)).unwrap().file_type();
+        let matched = match name {
+            "node-fifo" => ft.is_fifo(),
+            "node-socket" => ft.is_socket(),
+            "node-char" => ft.is_char_device(),
+            "node-block" => ft.is_block_device(),
+            _ => false,
+        };
+        assert!(matched, "{name} created with wrong file type: {ft:?}");
     }
 }
 

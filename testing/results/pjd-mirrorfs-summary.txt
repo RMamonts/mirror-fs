@@ -1,0 +1,16 @@
+pjdfstest vs mirror-fs over NFSv3 (PARTIAL run; TCG is slow). Subtests by category:
+
+category           pass   fail  %pass
+chflags              14      0   100%
+chmod               140    187    42%
+chown               338   1159    22%
+ftruncate            73     16    82%
+granular              7      0   100%
+link                158    201    44%
+mkdir                73     45    61%
+mkfifo               45     75    37%
+mknod                57    129    30%
+open                123    214    36%
+posix_fallocate       1      0   100%
+rename              601   1932    23%
+TOTAL              1630   3958    29%

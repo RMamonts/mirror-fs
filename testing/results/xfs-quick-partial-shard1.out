@@ -1,0 +1,19 @@
+FSTYP         -- nfs
+PLATFORM      -- Linux/x86_64 nfs-client-vm 7.0.0-42-generic #42~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Mon Oct 19 14:43:01 UTC 2
+MKFS_OPTIONS  -- 10.10.11.1:/scratch
+MOUNT_OPTIONS -- -o vers=3,proto=tcp,port=2051,mountport=2051,mountproto=tcp,nolock 10.10.11.1:/scratch /mnt/xscratch
+
+generic/004        [not run] O_TMPFILE is not supported
+generic/008        [not run] xfs_io fzero  failed (old kernel/wrong fs?)
+generic/013         654s
+generic/018        [not run] defragmentation not supported for fstype "nfs"
+generic/023         112s
+generic/028         37s
+generic/032        [not run] xfs_io falloc  failed (old kernel/wrong fs?)
+generic/037        [not run] attr namespace user not supported by this filesystem type: nfs
+generic/042        [not run] nfs does not support shutdown
+generic/056        [not run] require 10.10.11.1:/scratch to be valid block disk
+generic/060        [not run] xfs_io fpunch  failed (old kernel/wrong fs?)
+generic/064        [not run] xfs_io fiemap  failed (old kernel/wrong fs?)
+generic/069         139s
+generic/075        
