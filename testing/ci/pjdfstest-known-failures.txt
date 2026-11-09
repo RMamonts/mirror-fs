@@ -1,0 +1,34 @@
+# pjdfstest subtests expected to fail for mirror-fs over NFSv3.
+#
+# Format: <dir>/<NN>.t:<subtests>, e.g. chmod/03.t:1-4,6; '#' starts a comment.
+# Recorded against the pjdfstest revision pinned in .github/workflows/pjdfstest.yml
+# (Linux NFSv3 client, export on ext4). Regenerate the entries with
+#   python3 testing/ci/pjdfstest_compare.py <prove log> <this file> --emit-known
+# and keep the grouping below.
+
+# Paths close to PATH_MAX. mirror-fs operates on full server paths (export
+# root + client path), so a client path just under PATH_MAX exceeds the limit
+# on the server and fails with ENAMETOOLONG. Fixing this needs *at() syscalls
+# relative to directory descriptors instead of full paths.
+chmod/03.t:1-4
+chown/03.t:1-4,6-9
+ftruncate/03.t:1-4
+link/03.t:1-12
+mkdir/03.t:1-2
+mkfifo/03.t:1-3
+mknod/03.t:1-3,5-7,9-11
+open/03.t:1-3
+rename/02.t:2-3
+rmdir/03.t:1-4
+symlink/03.t:1-4
+truncate/03.t:1-4
+unlink/03.t:1-3
+
+# Unlinking an open file: the Linux NFS client keeps it as a hidden .nfsXXXX
+# file (silly rename), so fstat() still reports nlink 1. Inherent to NFS
+# clients, independent of the server.
+unlink/14.t:4
+
+# A 2^32 timestamp is stored as 2^32-1: NFSv3 nfstime3.seconds is a 32-bit
+# unsigned field (RFC 1813).
+utimensat/09.t:5

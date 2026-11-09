@@ -45,7 +45,11 @@ async fn access_returns_requested_mask() {
 }
 
 #[tokio::test]
-async fn access_respects_file_permissions() {
+async fn access_reflects_root_bypass_on_readonly_file() {
+    // The test context runs with root squashing disabled and `cred()` is UID 0,
+    // so the caller is a privileged (no_root_squash) root. On a 0444 regular
+    // file root bypasses the read/write bits but still cannot execute without a
+    // real `x` bit anywhere in the mode.
     let ctx = TestContext::new();
     let path = write_file(ctx.root_path(), "readonly.txt", b"data");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
@@ -68,8 +72,11 @@ async fn access_respects_file_permissions() {
     );
 
     assert!(result.access.contains(access::Mask::READ));
-    assert!(!result.access.contains(access::Mask::MODIFY));
-    assert!(!result.access.contains(access::Mask::EXECUTE));
+    assert!(result.access.contains(access::Mask::MODIFY), "root bypasses the write bit");
+    assert!(
+        !result.access.contains(access::Mask::EXECUTE),
+        "even root needs a real execute bit on a regular file"
+    );
 }
 
 #[tokio::test]
@@ -127,7 +134,7 @@ async fn fs_info_returns_server_limits() {
 }
 
 #[tokio::test]
-async fn fs_stat_returns_zero_counters() {
+async fn fs_stat_reports_real_capacity() {
     let ctx = TestContext::new();
     let root = ctx.root_handle().await;
 
@@ -136,11 +143,13 @@ async fn fs_stat_returns_zero_counters() {
         "fs_stat should succeed",
     );
 
+    // The backing filesystem has real capacity, so the counters must be
+    // non-zero (clients and `df` rely on this).
     assert!(result.root_attr.is_some());
-    assert_eq!(result.total_bytes, 0);
-    assert_eq!(result.free_bytes, 0);
-    assert_eq!(result.available_files, 0);
-    assert_eq!(result.invarsec, 0);
+    assert!(result.total_bytes > 0, "total_bytes should reflect the backing fs");
+    assert!(result.free_bytes <= result.total_bytes);
+    assert!(result.available_bytes <= result.free_bytes);
+    assert!(result.total_files > 0, "total_files should reflect the backing fs");
 }
 
 #[tokio::test]
@@ -257,7 +266,8 @@ async fn read_dir_returns_sorted_entries_and_rejects_bad_cookie() {
     );
     let names =
         success.entries.iter().map(|entry| entry.file_name.as_str().to_owned()).collect::<Vec<_>>();
-    assert_eq!(names, vec!["a.txt", "b.txt", "c.txt"]);
+    // `.` and `..` lead the listing (POSIX/RFC 1813), followed by sorted names.
+    assert_eq!(names, vec![".", "..", "a.txt", "b.txt", "c.txt"]);
 
     let fail = expect_err(
         read_dir::ReadDir::read_dir(
@@ -299,6 +309,8 @@ async fn read_dir_plus_returns_handles_and_supports_pagination() {
         .await,
         "read_dir_plus first page should succeed",
     );
+    // A small max_count forces pagination; the first page carries the leading
+    // `.`/`..` entries, each with attributes and a handle.
     assert_eq!(first.entries.len(), 2);
     assert!(!first.eof);
     assert!(first
@@ -321,9 +333,20 @@ async fn read_dir_plus_returns_handles_and_supports_pagination() {
         .await,
         "read_dir_plus second page should succeed",
     );
-    assert_eq!(second.entries.len(), 1);
     assert!(second.eof);
-    assert_eq!(second.entries[0].file_name.as_str(), "c.txt");
+    assert!(second
+        .entries
+        .iter()
+        .all(|entry| entry.file_attr.is_some() && entry.file_handle.is_some()));
+
+    // Across both pages the listing is exactly `.`, `..`, then the sorted files.
+    let all_names: Vec<String> = first
+        .entries
+        .iter()
+        .chain(second.entries.iter())
+        .map(|entry| entry.file_name.as_str().to_owned())
+        .collect();
+    assert_eq!(all_names, vec![".", "..", "a.txt", "b.txt", "c.txt"]);
 }
 
 #[tokio::test]

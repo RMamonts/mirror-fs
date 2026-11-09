@@ -104,16 +104,21 @@ fn mode_allows(cred: &Credentials, attr: &file::Attr, required: u32) -> bool {
     (select_class_bits(cred, attr) & required) == required
 }
 
-/// Privileged (un-squashed) root may act as any class, so it effectively holds
-/// the *union* of the owner, group and other bits: a right still grants nothing
-/// if no class sets that bit anywhere. Directory `X` (traversal) is always
-/// allowed; executing a regular file still requires a real execute bit.
+/// Privileged (un-squashed) root bypasses the rwx permission bits, matching a
+/// real `no_root_squash` NFS server: read and write are always granted, and a
+/// directory may always be searched/traversed. The only restriction POSIX keeps
+/// for the superuser is executing a *regular* file, which still requires at
+/// least one execute bit somewhere in the mode.
 fn privileged_mode_allows(attr: &file::Attr, required: u32) -> bool {
-    if (required & MODE_EXEC) != 0 && matches!(attr.file_type, file::Type::Directory) {
-        return true;
+    if (required & MODE_EXEC) != 0 && !matches!(attr.file_type, file::Type::Directory) {
+        // Executing a non-directory: root needs a real `x` bit in some class.
+        let any_exec = ((attr.mode >> 6) | (attr.mode >> 3) | attr.mode) & MODE_EXEC;
+        if any_exec == 0 {
+            return false;
+        }
     }
-    let union = (attr.mode >> 6) | (attr.mode >> 3) | attr.mode;
-    (union & required) == required
+    // Read, write, and directory traversal are always permitted for root.
+    true
 }
 
 /// Sticky-bit (`S_ISVTX`) ownership check for unlink/rmdir/rename.

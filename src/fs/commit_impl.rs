@@ -10,7 +10,7 @@ impl commit::Commit for MirrorFS {
         args: commit::Args,
         cred: &Credential,
     ) -> Result<commit::Success, commit::Fail> {
-        if let Err(error) = self.require_write(cred, &args.file).await {
+        if let Err(error) = self.require_data_access(cred, &args.file, auth::Access::Modify).await {
             return Err(commit::Fail {
                 error,
                 file_wcc: vfs::WccData { before: None, after: None },

@@ -5,6 +5,8 @@ use nfs_mamont::vfs::{self, rename};
 
 use std::os::unix::fs::MetadataExt;
 
+use crate::auth;
+
 use super::MirrorFS;
 
 impl rename::Rename for MirrorFS {
@@ -103,6 +105,19 @@ impl rename::Rename for MirrorFS {
                 from_dir_wcc: Self::wcc_data(&from_dir_path, from_before),
                 to_dir_wcc: Self::wcc_data(&to_dir_path, to_before),
             });
+        }
+
+        // Moving a directory under a new parent rewrites its `..` entry, which
+        // needs write permission on the directory itself (Linux `vfs_rename()`).
+        if from_meta.is_dir() && from_dir_path != to_dir_path {
+            let moved = Self::attr_from_metadata(&from_meta);
+            if !self.authorizer.allows(&self.credentials(cred), &moved, auth::Access::Modify) {
+                return Err(rename::Fail {
+                    error: vfs::Error::Access,
+                    from_dir_wcc: Self::wcc_data(&from_dir_path, from_before),
+                    to_dir_wcc: Self::wcc_data(&to_dir_path, to_before),
+                });
+            }
         }
 
         if let Ok(target_meta) = Self::metadata(&to_path) {

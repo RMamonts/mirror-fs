@@ -15,7 +15,9 @@ impl<B: Buffer> read::Read<B> for MirrorFS {
         mut data: B,
         cred: &Credential,
     ) -> Result<read::Success<B>, read::Fail> {
-        if let Err(error) = self.require_read(cred, &args.file).await {
+        if let Err(error) =
+            self.require_data_access(cred, &args.file, crate::auth::Access::Read).await
+        {
             return Err(read::Fail { error, file_attr: None });
         }
         let path = match self.path_for_handle(&args.file).await {
