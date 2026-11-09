@@ -330,6 +330,7 @@ dependencies = [
  "crossbeam-queue",
  "libc",
  "nfs-mamont",
+ "nfs-mamont-util",
  "num-derive",
  "num-traits",
  "serde",
@@ -343,19 +344,29 @@ dependencies = [
 
 [[package]]
 name = "nfs-mamont"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa3f553e38a4dc79e953fecd75689435c5076c1a63bcc44ad8202312cede8725"
+checksum = "1eed428d2dfdd2cd23da152ff2c6fb2765e7525073a838dcfd655991f6704e96"
 dependencies = [
  "async-channel",
  "byteorder",
- "crossbeam-queue",
  "num-derive",
  "num-traits",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "trait-variant",
+]
+
+[[package]]
+name = "nfs-mamont-util"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86728a070e10eec8cd421cd43a0a213c9302ebbbd66faeff685369bce1b636d1"
+dependencies = [
+ "crossbeam-queue",
+ "nfs-mamont",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

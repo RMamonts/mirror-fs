@@ -1,6 +1,7 @@
 use std::fs as stdfs;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 use tempfile::TempDir;
 
@@ -9,15 +10,18 @@ use nfs_mamont::vfs;
 use nfs_mamont::vfs::file;
 use nfs_mamont::vfs::lookup;
 use nfs_mamont::vfs::set_attr;
+use nfs_mamont::Allocator;
 use nfs_mamont::Buffer;
-use nfs_mamont::Slice;
+use nfs_mamont_util::{PoolAllocator, Slice};
 
 use crate::fs::MirrorFS;
 
-static BACKING: OnceLock<Mutex<Vec<Box<[u8]>>>> = OnceLock::new();
+static POOL: OnceLock<PoolAllocator> = OnceLock::new();
 
-fn backing() -> &'static Mutex<Vec<Box<[u8]>>> {
-    BACKING.get_or_init(|| Mutex::new(Vec::new()))
+fn pool() -> &'static PoolAllocator {
+    POOL.get_or_init(|| {
+        PoolAllocator::new(NonZeroUsize::new(8 * 1024).unwrap(), NonZeroUsize::new(256).unwrap())
+    })
 }
 
 pub fn expect_ok<T, E>(result: Result<T, E>, message: &str) -> T {
@@ -111,11 +115,8 @@ pub async fn alloc_slice(len: usize) -> Slice {
         return Slice::empty();
     }
 
-    let buf = vec![0u8; len].into_boxed_slice();
-    let ptr = buf.as_ptr() as *mut u8;
-    backing().lock().unwrap().push(buf);
-    let buffer = unsafe { nfs_mamont::UnownedBuffer::from_raw_parts(ptr, len) };
-    Slice::new(vec![buffer], 0..len, None)
+    let size = NonZeroUsize::new(len).unwrap();
+    pool().allocate(size).await.expect("pool allocation failed")
 }
 
 pub async fn slice_from_bytes(bytes: &[u8]) -> Slice {
