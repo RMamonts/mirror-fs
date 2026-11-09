@@ -27,7 +27,7 @@ impl FsMap {
     pub fn new(root: PathBuf) -> Self {
         Self {
             root,
-            backend_id: 0,
+            backend_id: file::BackendId::new(0, 0),
             next_id: 2,
             id_to_key: HashMap::new(),
             key_to_id: HashMap::new(),

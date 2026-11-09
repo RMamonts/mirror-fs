@@ -5,12 +5,10 @@ use clap::Parser;
 use tokio::net::TcpListener;
 use tracing::info;
 
-use nfs_mamont::mount::ExportEntry;
 use nfs_mamont::vfs::file::Path as VfsPath;
-use nfs_mamont::{handle_forever, service, Impl, ServerContext};
+use nfs_mamont::{handle_forever, ServerContext};
 
-#[cfg(debug_assertions)]
-use nfs_mamont::init_tracing;
+use nfs_mamont_util::{MountService, NlmService, PoolAllocator};
 
 pub mod args;
 pub mod config;
@@ -23,8 +21,12 @@ mod tests;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    #[cfg(debug_assertions)]
-    init_tracing();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("nfs_mamont=debug")),
+        )
+        .init();
 
     let args = args::Args::parse();
 
@@ -33,7 +35,7 @@ async fn main() -> std::io::Result<()> {
     let fs = Arc::new(fs::MirrorFS::new(config.export_root.clone(), root_squash));
 
     let context = ServerContext::new(
-        Arc::new(Impl::new(config.allocator.buffer_size, config.allocator.buffer_count)),
+        Arc::new(PoolAllocator::new(config.allocator.buffer_size, config.allocator.buffer_count)),
         config.vfs_pool_size,
     );
     let backend_id =
@@ -44,7 +46,8 @@ async fn main() -> std::io::Result<()> {
 
     let listener = TcpListener::bind(&args.addr).await?;
 
-    let mut exports = Vec::with_capacity(config.exports.len());
+    let mount_service = Arc::new(MountService::new());
+
     for export in &config.exports {
         let root_handle = fs.handle_for_path(&export.local_path).await.map_err(|error| {
             std::io::Error::new(
@@ -56,16 +59,9 @@ async fn main() -> std::io::Result<()> {
             )
         })?;
 
-        exports.push(service::mount::ExportEntryWrapper {
-            export: ExportEntry {
-                directory: VfsPath::new(export.mount_path.clone())?,
-                names: Vec::new(),
-            },
-            root_handle,
-        });
+        mount_service.add_export(VfsPath::new(export.mount_path.clone())?, root_handle).await;
     }
 
-    let mount_service = Arc::new(service::mount::MountService::with_exports(exports));
-    let nlm_service = Arc::new(service::nlm::NlmService::new());
+    let nlm_service = Arc::new(NlmService::new());
     handle_forever(listener, context, mount_service, nlm_service).await
 }
