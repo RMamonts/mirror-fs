@@ -1,0 +1,9 @@
+vfs_pool_size = 10
+
+[allocator]
+buffer_size = 65536
+buffer_count = 4096
+
+[exports]
+root = "/tmp/nfs-bench"  # must contain fs01/data (512 MiB)
+paths = ["fs01"]

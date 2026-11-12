@@ -290,6 +290,7 @@ impl MirrorFS {
     }
 
     fn metadata(path: &Path) -> Result<Metadata, vfs::Error> {
+        crate::bench_mode::emulate_slow_stat();
         std::fs::symlink_metadata(path).map_err(|error| Self::io_error_to_vfs(&error))
     }
 
