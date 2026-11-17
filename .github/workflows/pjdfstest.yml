@@ -1,0 +1,77 @@
+name: pjdfstest
+
+# POSIX conformance of mirror-fs as seen through the Linux NFSv3 client:
+# mirror-fs serves a directory, the runner mounts it over loopback and runs
+# pjdfstest on the mount. Failures are compared with
+# testing/ci/pjdfstest-known-failures.txt, so the job fails on regressions and
+# reports known failures that have started to pass.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # pjdfstest revision the known-failures list was recorded against.
+  PJDFSTEST_REF: 85a8aea9e685999ef0540392fd80535f873d7ff7
+
+jobs:
+  pjdfstest:
+    name: pjdfstest over NFSv3
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install NFS client and pjdfstest build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nfs-common autoconf automake
+          if ! sudo modprobe nfs; then
+            sudo apt-get install -y "linux-modules-extra-$(uname -r)"
+            sudo modprobe nfs
+          fi
+
+      - name: Build mirror-fs
+        run: cargo build --release --locked
+
+      - name: Checkout pjdfstest
+        uses: actions/checkout@v7
+        with:
+          repository: pjd/pjdfstest
+          ref: ${{ env.PJDFSTEST_REF }}
+          path: pjdfstest
+
+      - name: Build pjdfstest
+        working-directory: pjdfstest
+        run: |
+          autoreconf -ifs
+          ./configure
+          make pjdfstest
+
+      - name: Run pjdfstest
+        run: >
+          sudo --preserve-env=GITHUB_ACTIONS,GITHUB_STEP_SUMMARY
+          testing/ci/run-pjdfstest.sh target/release/mirror-fs pjdfstest
+
+      - name: Upload pjdfstest logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pjdfstest-results
+          path: pjdfstest-results/
+          retention-days: 14

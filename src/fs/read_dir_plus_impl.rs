@@ -37,8 +37,12 @@ impl read_dir_plus::ReadDirPlus for MirrorFS {
             });
         }
 
-        let entries = match self.list_directory_entries(&dir_path) {
-            Ok(entries) => entries,
+        let mut entries = match self.dot_entries(&dir_path).await {
+            Ok(dots) => dots,
+            Err(error) => return Err(read_dir_plus::Fail { error, dir_attr: Some(dir_attr) }),
+        };
+        match self.list_directory_entries(&dir_path) {
+            Ok(real) => entries.extend(real),
             Err(error) => return Err(read_dir_plus::Fail { error, dir_attr: Some(dir_attr) }),
         };
 

@@ -46,6 +46,10 @@ impl symlink::Symlink for MirrorFS {
                 });
             }
         }
+        let caller = self.credentials(cred);
+        if let Err(error) = Self::chown_to_caller(&link_path, &dir_path, &caller) {
+            return Err(symlink::Fail { error, dir_wcc: Self::wcc_data(&dir_path, before) });
+        }
 
         let attr = match Self::metadata(&link_path) {
             Ok(meta) => Self::attr_from_metadata(&meta),

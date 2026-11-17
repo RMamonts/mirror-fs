@@ -51,6 +51,7 @@ impl create::Create for MirrorFS {
         let mut child_path = dir_path.clone();
         child_path.push(args.object.name.as_str());
         let existed = std::fs::symlink_metadata(&child_path).is_ok();
+        let mut created = false;
 
         let apply_attr = match &args.how {
             create::How::Unchecked(attr) => {
@@ -67,6 +68,7 @@ impl create::Create for MirrorFS {
                             wcc_data: Self::wcc_data(&dir_path, before),
                         });
                     }
+                    created = true;
                 }
                 attr
             }
@@ -85,11 +87,13 @@ impl create::Create for MirrorFS {
                         wcc_data: Self::wcc_data(&dir_path, before),
                     });
                 }
+                created = true;
                 attr
             }
             create::How::Exclusive(ref verifier) => {
                 match OpenOptions::new().write(true).create_new(true).open(&child_path).await {
                     Ok(_) => {
+                        created = true;
                         Self::store_exclusive_verifier(&child_path, &verifier.0);
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -110,6 +114,13 @@ impl create::Create for MirrorFS {
                 &DEFAULT_SET_ATTR
             }
         };
+
+        if created {
+            let caller = self.credentials(cred);
+            if let Err(error) = Self::chown_to_caller(&child_path, &dir_path, &caller) {
+                return Err(create::Fail { error, wcc_data: Self::wcc_data(&dir_path, before) });
+            }
+        }
 
         if let Err(error) = Self::apply_set_attr(&child_path, apply_attr) {
             return Err(create::Fail { error, wcc_data: Self::wcc_data(&dir_path, before) });
